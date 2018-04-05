@@ -52,8 +52,9 @@
  * to be released.
  */
 #define WCD_SPI_AC_STATUS_RELEASE_ACCESS	0x00
-#define WCD_SPI_AC_LOCAL_ACCESS	0x00
-#define WCD_SPI_AC_REMOTE_ACCESS 0x01
+#define WCD_SPI_AC_LOCAL_ACCESS	(0)
+#define WCD_SPI_AC_REMOTE_ACCESS (0x01)
+#define WCD_SPI_AC_NO_ACCESS (0x02)
 #define WCD_SPI_CTL_INS_ID 0
 #define WCD_SPI_AC_QMI_TIMEOUT_MS 100
 
@@ -80,6 +81,7 @@ struct wcd_spi_ac_priv {
 	u8 svc_offline_change;
 	wait_queue_head_t svc_poll_wait;
 	struct mutex status_lock;
+	struct completion online_compl;
 
 	/* state maintenence related */
 	u32 state;
@@ -91,7 +93,8 @@ struct wcd_spi_ac_priv {
 	struct work_struct svc_arr_work;
 	struct work_struct svc_exit_work;
 	struct notifier_block nb;
-	struct mutex svc_lock;
+	struct mutex msg_lock;
+	struct mutex event_lock;
 	struct workqueue_struct *qmi_wq;
 	struct work_struct recv_msg_work;
 };
@@ -225,16 +228,12 @@ static void wcd_spi_ac_procfs_deinit(struct wcd_spi_ac_priv *ac)
 	proc_remove(ac->pfs_root);
 }
 
-static int wcd_spi_ac_request_access(struct wcd_spi_ac_priv *ac,
-				     bool is_svc_locked)
+static int wcd_spi_ac_request_access(struct wcd_spi_ac_priv *ac)
 {
 	struct wcd_spi_req_access_msg_v01 req;
 	struct wcd_spi_req_access_resp_v01 rsp;
 	struct msg_desc req_desc, rsp_desc;
 	int ret = 0;
-
-	dev_dbg(ac->dev, "%s: is_svc_locked = %s\n",
-		__func__, is_svc_locked ? "true" : "false");
 
 	memset(&req, 0, sizeof(req));
 	memset(&rsp, 0, sizeof(rsp));
@@ -250,8 +249,7 @@ static int wcd_spi_ac_request_access(struct wcd_spi_ac_priv *ac,
 	rsp_desc.msg_id = WCD_SPI_REQ_ACCESS_RESP_V01;
 	rsp_desc.ei_array = wcd_spi_req_access_resp_v01_ei;
 
-	if (!is_svc_locked)
-		WCD_SPI_AC_MUTEX_LOCK(ac->dev, ac->svc_lock);
+	WCD_SPI_AC_MUTEX_LOCK(ac->dev, ac->msg_lock);
 
 	ret = qmi_send_req_wait(ac->qmi_hdl,
 				&req_desc, &req, sizeof(req),
@@ -269,22 +267,18 @@ static int wcd_spi_ac_request_access(struct wcd_spi_ac_priv *ac,
 			__func__, rsp.resp.result);
 	}
 done:
-	if (!is_svc_locked)
-		WCD_SPI_AC_MUTEX_UNLOCK(ac->dev, ac->svc_lock);
+	dev_dbg(ac->dev, "%s: status %d\n", __func__, ret);
+	WCD_SPI_AC_MUTEX_UNLOCK(ac->dev, ac->msg_lock);
 
 	return ret;
 }
 
-static int wcd_spi_ac_release_access(struct wcd_spi_ac_priv *ac,
-				     bool is_svc_locked)
+static int wcd_spi_ac_release_access(struct wcd_spi_ac_priv *ac)
 {
 	struct wcd_spi_rel_access_msg_v01 req;
 	struct wcd_spi_rel_access_resp_v01 rsp;
 	struct msg_desc req_desc, rsp_desc;
 	int ret = 0;
-
-	dev_dbg(ac->dev, "%s: is_svc_locked = %s\n",
-		__func__, is_svc_locked ? "true" : "false");
 
 	memset(&req, 0, sizeof(req));
 	memset(&rsp, 0, sizeof(rsp));
@@ -297,8 +291,7 @@ static int wcd_spi_ac_release_access(struct wcd_spi_ac_priv *ac,
 	rsp_desc.msg_id = WCD_SPI_REL_ACCESS_RESP_V01;
 	rsp_desc.ei_array = wcd_spi_rel_access_resp_v01_ei;
 
-	if (!is_svc_locked)
-		WCD_SPI_AC_MUTEX_LOCK(ac->dev, ac->svc_lock);
+	WCD_SPI_AC_MUTEX_LOCK(ac->dev, ac->msg_lock);
 
 	ret = qmi_send_req_wait(ac->qmi_hdl,
 				&req_desc, &req, sizeof(req),
@@ -316,8 +309,9 @@ static int wcd_spi_ac_release_access(struct wcd_spi_ac_priv *ac,
 			__func__, rsp.resp.result);
 	}
 done:
-	if (!is_svc_locked)
-		WCD_SPI_AC_MUTEX_UNLOCK(ac->dev, ac->svc_lock);
+	dev_dbg(ac->dev, "%s: status %d\n", __func__, ret);
+	WCD_SPI_AC_MUTEX_UNLOCK(ac->dev, ac->msg_lock);
+
 	return ret;
 }
 
@@ -353,7 +347,7 @@ static int wcd_spi_ac_buf_msg(
 	rsp_desc.msg_id = WCD_SPI_BUFF_RESP_V01;
 	rsp_desc.ei_array = wcd_spi_buff_resp_v01_ei;
 
-	WCD_SPI_AC_MUTEX_LOCK(ac->dev, ac->svc_lock);
+	WCD_SPI_AC_MUTEX_LOCK(ac->dev, ac->msg_lock);
 	ret = qmi_send_req_wait(ac->qmi_hdl,
 				&req_desc, &req, sizeof(req),
 				&rsp_desc, &rsp, sizeof(rsp),
@@ -371,7 +365,7 @@ static int wcd_spi_ac_buf_msg(
 			__func__, rsp.resp.result);
 	}
 done:
-	WCD_SPI_AC_MUTEX_UNLOCK(ac->dev, ac->svc_lock);
+	WCD_SPI_AC_MUTEX_UNLOCK(ac->dev, ac->msg_lock);
 	return ret;
 
 }
@@ -382,10 +376,9 @@ done:
  *			already accesible.
  * @ac: pointer to the drivers private data
  * @value: value to be set in the status mask
- * @is_svc_locked: flag to indicate if svc_lock is acquired by caller
  */
 static int wcd_spi_ac_set_sync(struct wcd_spi_ac_priv *ac,
-			       u32 value, bool is_svc_locked)
+			       u32 value)
 {
 	int ret = 0;
 
@@ -393,18 +386,60 @@ static int wcd_spi_ac_set_sync(struct wcd_spi_ac_priv *ac,
 	ac->state |= value;
 	/* any non-zero state indicates us to request SPI access */
 	wmb();
-	dev_dbg(ac->dev, "%s: current state = 0x%x, current access 0x%x\n",
-		__func__, ac->state, ac->current_access);
+	dev_dbg(ac->dev,
+		"%s: value 0x%x cur_state = 0x%x cur_access 0x%x\n",
+		__func__, value, ac->state, ac->current_access);
 	if (ac->current_access == WCD_SPI_AC_REMOTE_ACCESS) {
+		if (value & WCD_SPI_AC_SVC_OFFLINE) {
+			/*
+			 * service exited while holding access.
+			 * SPI access is blocked until service
+			 * arrives again.
+			 */
+			ac->current_access = WCD_SPI_AC_NO_ACCESS;
+			dev_err(ac->dev,
+				"%s: svc exit while holding access\n",
+				__func__);
+			goto done;
+		}
+
 		dev_dbg(ac->dev,
 			"%s: requesting access, state = 0x%x\n",
 			__func__, ac->state);
-		ret = wcd_spi_ac_request_access(ac, is_svc_locked);
+		ret = wcd_spi_ac_request_access(ac);
 		if (!ret)
 			ac->current_access = WCD_SPI_AC_LOCAL_ACCESS;
-	}
-	WCD_SPI_AC_MUTEX_UNLOCK(ac->dev, ac->state_lock);
+	} else if (ac->current_access == WCD_SPI_AC_NO_ACCESS) {
+		/*
+		 * Access is lost due to service offline,
+		 * Wait here until service is back online
+		 */
+		ret = wait_for_completion_timeout(&ac->online_compl,
+					msecs_to_jiffies(3000));
+		if (!ret) {
+			dev_err(ac->dev,
+				"%s: svc_online timedout\n", __func__);
+			ret = -ETIMEDOUT;
+			goto done;
+		}
 
+		/*
+		 * service is now online, current access is expected
+		 * to be local at this time. check to make sure.
+		 */
+		if (ac->current_access != WCD_SPI_AC_LOCAL_ACCESS) {
+			dev_err(ac->dev,
+				"%s: wait complete, access 0x%x not local\n",
+				__func__, ac->current_access);
+			ret = -EIO;
+			goto done;
+		}
+
+		/* Explicity assign return to 0, as access is local */
+		ret = 0;
+	}
+done:
+	WCD_SPI_AC_MUTEX_UNLOCK(ac->dev, ac->state_lock);
 	return ret;
 }
 
@@ -413,10 +448,9 @@ static int wcd_spi_ac_set_sync(struct wcd_spi_ac_priv *ac,
  *			  bus and releases access if applicable
  * @ac: pointer to the drivers private data
  * @value: value to be cleared in the status mask
- * @is_svc_locked: flag to indicate if svc_lock is acquired by caller
  */
 static int wcd_spi_ac_clear_sync(struct wcd_spi_ac_priv *ac,
-				 u32 value, bool is_svc_locked)
+				 u32 value)
 {
 	int ret = 0;
 
@@ -432,7 +466,7 @@ static int wcd_spi_ac_clear_sync(struct wcd_spi_ac_priv *ac,
 		dev_dbg(ac->dev,
 			"%s: releasing access, state = 0x%x\n",
 			__func__, ac->state);
-		ret = wcd_spi_ac_release_access(ac, is_svc_locked);
+		ret = wcd_spi_ac_release_access(ac);
 		if (!ret)
 			ac->current_access = WCD_SPI_AC_REMOTE_ACCESS;
 	}
@@ -483,13 +517,13 @@ int wcd_spi_access_ctl(struct device *dev,
 
 	switch (request) {
 	case WCD_SPI_ACCESS_REQUEST:
-		ret = wcd_spi_ac_set_sync(ac, reason, false);
+		ret = wcd_spi_ac_set_sync(ac, reason);
 		if (ret)
 			dev_err(dev, "%s: set_sync(0x%x) failed %d\n",
 				__func__, reason, ret);
 		break;
 	case WCD_SPI_ACCESS_RELEASE:
-		ret = wcd_spi_ac_clear_sync(ac, reason, false);
+		ret = wcd_spi_ac_clear_sync(ac, reason);
 		if (ret)
 			dev_err(dev, "%s: clear_sync(0x%x) failed %d\n",
 				__func__, reason, ret);
@@ -570,7 +604,7 @@ static ssize_t wcd_spi_ac_cdev_write(struct file *file,
 	switch (cmd_buf->cmd_type) {
 
 	case WCD_SPI_AC_CMD_CONC_BEGIN:
-		ret = wcd_spi_ac_set_sync(ac, WCD_SPI_AC_CONCURRENCY, false);
+		ret = wcd_spi_ac_set_sync(ac, WCD_SPI_AC_CONCURRENCY);
 		if (ret) {
 			dev_err(ac->dev, "%s: set_sync(CONC) fail %d\n",
 				__func__, ret);
@@ -580,7 +614,7 @@ static ssize_t wcd_spi_ac_cdev_write(struct file *file,
 		break;
 
 	case WCD_SPI_AC_CMD_CONC_END:
-		ret = wcd_spi_ac_clear_sync(ac, WCD_SPI_AC_CONCURRENCY, false);
+		ret = wcd_spi_ac_clear_sync(ac, WCD_SPI_AC_CONCURRENCY);
 		if (ret) {
 			dev_err(ac->dev, "%s: clear_sync(CONC) fail %d\n",
 				__func__, ret);
@@ -625,8 +659,7 @@ static ssize_t wcd_spi_ac_cdev_write(struct file *file,
 			goto free_cmd_buf;
 		}
 
-		ret = wcd_spi_ac_clear_sync(ac, WCD_SPI_AC_UNINITIALIZED,
-					    false);
+		ret = wcd_spi_ac_clear_sync(ac, WCD_SPI_AC_UNINITIALIZED);
 		if (ret) {
 			dev_err(ac->dev, "%s: clear_sync 0x%lx failed %d\n",
 				__func__, WCD_SPI_AC_UNINITIALIZED, ret);
@@ -661,7 +694,7 @@ static int wcd_spi_ac_cdev_release(struct inode *inode,
 		return -EINVAL;
 	}
 
-	ret = wcd_spi_ac_set_sync(ac, WCD_SPI_AC_UNINITIALIZED, false);
+	ret = wcd_spi_ac_set_sync(ac, WCD_SPI_AC_UNINITIALIZED);
 	if (ret)
 		dev_err(ac->dev, "%s: set_sync(UNINITIALIZED) failed %d\n",
 			__func__, ret);
@@ -791,7 +824,7 @@ static void wcd_spi_ac_svc_arrive(struct work_struct *work)
 		return;
 	}
 
-	WCD_SPI_AC_MUTEX_LOCK(ac->dev, ac->svc_lock);
+	WCD_SPI_AC_MUTEX_LOCK(ac->dev, ac->event_lock);
 	ac->qmi_hdl = qmi_handle_create(wcd_spi_ac_clnt_notify,
 					ac);
 	if (!ac->qmi_hdl) {
@@ -812,19 +845,22 @@ static void wcd_spi_ac_svc_arrive(struct work_struct *work)
 		goto done;
 	}
 
-	/* Mark service as online */
-	wcd_spi_ac_status_change(ac, 1);
-
+	/* Notify service availability */
+	ac->current_access = WCD_SPI_AC_LOCAL_ACCESS;
+	complete(&ac->online_compl);
 	/*
 	 * update the state and clear the WCD_SPI_AC_SVC_OFFLINE
 	 * bit to indicate that the service is now online.
 	 */
-	ret = wcd_spi_ac_clear_sync(ac, WCD_SPI_AC_SVC_OFFLINE, true);
+	ret = wcd_spi_ac_clear_sync(ac, WCD_SPI_AC_SVC_OFFLINE);
 	if (ret)
 		dev_err(ac->dev, "%s: clear_sync(SVC_OFFLINE) failed %d\n",
 			__func__, ret);
+
+	/* Mark service as online */
+	wcd_spi_ac_status_change(ac, 1);
 done:
-	WCD_SPI_AC_MUTEX_UNLOCK(ac->dev, ac->svc_lock);
+	WCD_SPI_AC_MUTEX_UNLOCK(ac->dev, ac->event_lock);
 
 }
 
@@ -841,15 +877,17 @@ static void wcd_spi_ac_svc_exit(struct work_struct *work)
 		return;
 	}
 
-	WCD_SPI_AC_MUTEX_LOCK(ac->dev, ac->svc_lock);
-	ret = wcd_spi_ac_set_sync(ac, WCD_SPI_AC_SVC_OFFLINE, true);
+	WCD_SPI_AC_MUTEX_LOCK(ac->dev, ac->event_lock);
+	reinit_completion(&ac->online_compl);
+	ret = wcd_spi_ac_set_sync(ac, WCD_SPI_AC_SVC_OFFLINE |
+				      WCD_SPI_AC_UNINITIALIZED);
 	if (ret)
 		dev_err(ac->dev, "%s: set_sync(SVC_OFFLINE) failed %d\n",
 			__func__, ret);
 	qmi_handle_destroy(ac->qmi_hdl);
 	ac->qmi_hdl = NULL;
 	wcd_spi_ac_status_change(ac, 0);
-	WCD_SPI_AC_MUTEX_UNLOCK(ac->dev, ac->svc_lock);
+	WCD_SPI_AC_MUTEX_UNLOCK(ac->dev, ac->event_lock);
 }
 
 static int wcd_spi_ac_svc_event(struct notifier_block *this,
@@ -906,7 +944,9 @@ static int wcd_spi_ac_probe(struct platform_device *pdev)
 
 	mutex_init(&ac->status_lock);
 	mutex_init(&ac->state_lock);
-	mutex_init(&ac->svc_lock);
+	mutex_init(&ac->msg_lock);
+	mutex_init(&ac->event_lock);
+	init_completion(&ac->online_compl);
 	init_waitqueue_head(&ac->svc_poll_wait);
 	ac->svc_offline = 1;
 	ac->state = (WCD_SPI_AC_SVC_OFFLINE |
@@ -949,7 +989,8 @@ deinit_procfs:
 	wcd_spi_ac_procfs_deinit(ac);
 	mutex_destroy(&ac->status_lock);
 	mutex_destroy(&ac->state_lock);
-	mutex_destroy(&ac->svc_lock);
+	mutex_destroy(&ac->msg_lock);
+	mutex_destroy(&ac->event_lock);
 unreg_chardev:
 	wcd_spi_ac_unreg_chardev(ac);
 	return ret;
@@ -971,7 +1012,8 @@ static int wcd_spi_ac_remove(struct platform_device *pdev)
 	wcd_spi_ac_procfs_deinit(ac);
 	mutex_destroy(&ac->status_lock);
 	mutex_destroy(&ac->state_lock);
-	mutex_destroy(&ac->svc_lock);
+	mutex_destroy(&ac->msg_lock);
+	mutex_destroy(&ac->event_lock);
 
 	return 0;
 }
