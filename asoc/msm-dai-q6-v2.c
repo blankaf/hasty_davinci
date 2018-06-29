@@ -4255,6 +4255,7 @@ static struct platform_driver msm_auxpcm_dev_driver = {
 		.name = "msm-auxpcm-dev",
 		.owner = THIS_MODULE,
 		.of_match_table = msm_auxpcm_dev_dt_match,
+		.suppress_bind_attrs = true,
 	},
 };
 
@@ -6284,6 +6285,7 @@ static struct platform_driver msm_dai_q6_dev = {
 		.name = "msm-dai-q6-dev",
 		.owner = THIS_MODULE,
 		.of_match_table = msm_dai_q6_dev_dt_match,
+		.suppress_bind_attrs = true,
 	},
 };
 
@@ -6321,6 +6323,7 @@ static struct platform_driver msm_dai_q6 = {
 		.name = "msm-dai-q6",
 		.owner = THIS_MODULE,
 		.of_match_table = msm_dai_q6_dt_match,
+		.suppress_bind_attrs = true,
 	},
 };
 
@@ -6356,6 +6359,7 @@ static struct platform_driver msm_dai_mi2s_q6 = {
 		.name = "msm-dai-mi2s",
 		.owner = THIS_MODULE,
 		.of_match_table = msm_dai_mi2s_dt_match,
+		.suppress_bind_attrs = true,
 	},
 };
 
@@ -6373,6 +6377,7 @@ static struct platform_driver msm_dai_q6_mi2s_driver = {
 		.name = "msm-dai-q6-mi2s",
 		.owner = THIS_MODULE,
 		.of_match_table = msm_dai_q6_mi2s_dev_dt_match,
+		.suppress_bind_attrs = true,
 	},
 };
 
@@ -6442,6 +6447,7 @@ static struct platform_driver msm_dai_q6_spdif_driver = {
 		.name = "msm-dai-q6-spdif",
 		.owner = THIS_MODULE,
 		.of_match_table = msm_dai_q6_spdif_dt_match,
+		.suppress_bind_attrs = true,
 	},
 };
 
@@ -6648,6 +6654,7 @@ static struct platform_driver msm_dai_tdm_q6 = {
 		.name = "msm-dai-tdm",
 		.owner = THIS_MODULE,
 		.of_match_table = msm_dai_tdm_dt_match,
+		.suppress_bind_attrs = true,
 	},
 };
 
@@ -10276,6 +10283,7 @@ static struct platform_driver msm_dai_q6_tdm_driver = {
 		.name = "msm-dai-q6-tdm",
 		.owner = THIS_MODULE,
 		.of_match_table = msm_dai_q6_tdm_dev_dt_match,
+		.suppress_bind_attrs = true,
 	},
 };
 

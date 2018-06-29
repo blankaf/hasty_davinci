@@ -3334,6 +3334,7 @@ static struct platform_driver msm_cpe_lsm_driver = {
 		.name = "msm-cpe-lsm",
 		.owner = THIS_MODULE,
 		.of_match_table = of_match_ptr(msm_cpe_lsm_dt_match),
+		.suppress_bind_attrs = true,
 	},
 	.probe = msm_cpe_lsm_probe,
 	.remove = msm_cpe_lsm_remove,

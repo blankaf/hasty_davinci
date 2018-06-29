@@ -14415,6 +14415,7 @@ static struct platform_driver tasha_codec_driver = {
 #ifdef CONFIG_PM
 		.pm = &tasha_pm_ops,
 #endif
+		.suppress_bind_attrs = true,
 	},
 };
 
