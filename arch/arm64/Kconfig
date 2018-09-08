@@ -1467,3 +1467,29 @@ endif
 source "lib/Kconfig"
 
 source "techpack/Kconfig"
+
+menu "Xiaomi configuration options"
+
+config MACH_XIAOMI
+        bool "Xiaomi device"
+        depends on ARCH_QCOM
+        help
+          Support for Xiaomi products
+
+config MACH_XIAOMI_SDMMAGPIE
+        bool "Xiaomi SDMMAGPIE"
+        depends on ARCH_SDMMAGPIE
+        select MACH_XIAOMI
+        help
+          Support for Sdmmagpie-based Xiaomi variants
+
+menu "Xiaomi board selection"
+
+config MACH_XIAOMI_DAVINCI
+        bool "davinci board"
+        select MACH_XIAOMI_SDMMAGPIE
+        help
+          Support for Mi 9T and Redmi K20
+endmenu
+
+endmenu
