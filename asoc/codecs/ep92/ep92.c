@@ -47,37 +47,8 @@ static const unsigned int ep92_samp_freq_table[8] = {
 
 static bool ep92_volatile_register(struct device *dev, unsigned int reg)
 {
-	switch (reg) {
-	case EP92_BI_GENERAL_INFO_0:
-	case EP92_BI_GENERAL_INFO_1:
-	case EP92_BI_GENERAL_INFO_2:
-	case EP92_BI_GENERAL_INFO_3:
-	case EP92_BI_GENERAL_INFO_4:
-	case EP92_BI_GENERAL_INFO_5:
-	case EP92_BI_GENERAL_INFO_6:
-	case EP92_GENERAL_CONTROL_0:
-	case EP92_GENERAL_CONTROL_1:
-	case EP92_GENERAL_CONTROL_2:
-	case EP92_GENERAL_CONTROL_3:
-	case EP92_GENERAL_CONTROL_4:
-	case EP92_AUDIO_INFO_SYSTEM_STATUS_0:
-	case EP92_AUDIO_INFO_SYSTEM_STATUS_1:
-	case EP92_AUDIO_INFO_AUDIO_STATUS:
-	case EP92_AUDIO_INFO_CHANNEL_STATUS_0:
-	case EP92_AUDIO_INFO_CHANNEL_STATUS_1:
-	case EP92_AUDIO_INFO_CHANNEL_STATUS_2:
-	case EP92_AUDIO_INFO_CHANNEL_STATUS_3:
-	case EP92_AUDIO_INFO_CHANNEL_STATUS_4:
-	case EP92_AUDIO_INFO_ADO_INFO_FRAME_0:
-	case EP92_AUDIO_INFO_ADO_INFO_FRAME_1:
-	case EP92_AUDIO_INFO_ADO_INFO_FRAME_2:
-	case EP92_AUDIO_INFO_ADO_INFO_FRAME_3:
-	case EP92_AUDIO_INFO_ADO_INFO_FRAME_4:
-	case EP92_AUDIO_INFO_ADO_INFO_FRAME_5:
-		return true;
-	default:
-		return false;
-	}
+	/* do not cache register state in regmap */
+	return true;
 }
 
 static bool ep92_writeable_registers(struct device *dev, unsigned int reg)
@@ -182,6 +153,9 @@ static ssize_t debugfs_codec_write_op(struct file *filp,
 	int rc;
 	u32 param[2];
 
+	if (!codec)
+		return -ENODEV;
+
 	if (!filp || !ppos || !ubuf)
 		return -EINVAL;
 	if (cnt > sizeof(lbuf) - 1)
@@ -251,6 +225,9 @@ static ssize_t debugfs_codec_read_op(struct file *filp,
 	struct snd_soc_codec *codec = ep92->codec;
 	ssize_t ret_cnt;
 
+	if (!codec)
+		return -ENODEV;
+
 	if (!filp || !ppos || !ubuf || *ppos < 0)
 		return -EINVAL;
 	ret_cnt = debugfs_ep92_reg_show(codec, ubuf, cnt, ppos);
@@ -270,6 +247,9 @@ static int ep92_send_uevent(struct ep92_pdata *ep92, char *event)
 
 	if (!event || !ep92)
 		return -EINVAL;
+
+	if (!ep92->codec)
+		return -ENODEV;
 
 	return kobject_uevent_env(&ep92->codec->dev->kobj, KOBJ_CHANGE, env);
 }
@@ -337,7 +317,7 @@ static void ep92_read_general_control(struct snd_soc_codec *codec,
 	old = ep92->gi.tx_info;
 	ep92->gi.tx_info = snd_soc_read(codec, EP92_BI_GENERAL_INFO_0);
 	if (ep92->gi.tx_info == 0xff) {
-		pr_debug("ep92 EP92_BI_GENERAL_INFO_0 read 0xff\n");
+		dev_dbg(codec->dev, "ep92 EP92_BI_GENERAL_INFO_0 read 0xff\n");
 		ep92->gi.tx_info = old;
 	}
 	/* implement hysteresis to prevent events on glitches */
@@ -347,7 +327,7 @@ static void ep92_read_general_control(struct snd_soc_codec *codec,
 			if ((ep92->hyst_tx_plug == EP92_HYST_CNT) &&
 			    (ep92->filt_tx_plug == 0)) {
 				ep92->filt_tx_plug = 1;
-				pr_debug("ep92 out_plug changed to 1\n");
+				dev_dbg(codec->dev, "ep92 out_plug changed to 1\n");
 				ep92_send_uevent(ep92,
 					"EP92EVT_OUT_PLUG=CONNECTED");
 			}
@@ -358,7 +338,7 @@ static void ep92_read_general_control(struct snd_soc_codec *codec,
 			if ((ep92->hyst_tx_plug == 0) &&
 			    (ep92->filt_tx_plug == 1)) {
 				ep92->filt_tx_plug = 0;
-				pr_debug("ep92 out_plug changed to 0\n");
+				dev_dbg(codec->dev, "ep92 out_plug changed to 0\n");
 				ep92_send_uevent(ep92,
 					"EP92EVT_OUT_PLUG=DISCONNECTED");
 			}
@@ -368,7 +348,7 @@ static void ep92_read_general_control(struct snd_soc_codec *codec,
 	old = ep92->gi.video_latency;
 	ep92->gi.video_latency = snd_soc_read(codec, EP92_BI_GENERAL_INFO_4);
 	if (ep92->gi.video_latency == 0xff) {
-		pr_debug("ep92 EP92_BI_GENERAL_INFO_4 read 0xff\n");
+		dev_dbg(codec->dev, "ep92 EP92_BI_GENERAL_INFO_4 read 0xff\n");
 		ep92->gi.video_latency = old;
 	}
 	change = ep92->gi.video_latency ^ old;
@@ -376,21 +356,21 @@ static void ep92_read_general_control(struct snd_soc_codec *codec,
 		val = ep92->gi.video_latency;
 		if (val > 0)
 			val = (val - 1) * 2;
-		pr_debug("ep92 video latency changed to %d\n", val);
+		dev_dbg(codec->dev, "ep92 video latency changed to %d\n", val);
 		ep92_send_uevent(ep92, "EP92EVT_VIDEO_LATENCY=CHANGED");
 	}
 
 	old = ep92->gc.ctl;
 	ep92->gc.ctl = snd_soc_read(codec, EP92_GENERAL_CONTROL_0);
 	if (ep92->gc.ctl == 0xff) {
-		pr_debug("ep92 EP92_GENERAL_CONTROL_0 read 0xff\n");
+		dev_dbg(codec->dev, "ep92 EP92_GENERAL_CONTROL_0 read 0xff\n");
 		ep92->gc.ctl = old;
 	}
 	change = ep92->gc.ctl ^ old;
 	if (change & EP92_GC_POWER_MASK) {
 		val = (ep92->gc.ctl >> EP92_GC_POWER_SHIFT) &
 			EP92_2CHOICE_MASK;
-		pr_debug("ep92 power changed to %d\n", val);
+		dev_dbg(codec->dev, "ep92 power changed to %d\n", val);
 		if (val)
 			ep92_send_uevent(ep92, "EP92EVT_POWER=ON");
 		else
@@ -399,7 +379,7 @@ static void ep92_read_general_control(struct snd_soc_codec *codec,
 	if (change & EP92_GC_AUDIO_PATH_MASK) {
 		val = (ep92->gc.ctl >> EP92_GC_AUDIO_PATH_SHIFT) &
 			EP92_2CHOICE_MASK;
-		pr_debug("ep92 audio_path changed to %d\n", val);
+		dev_dbg(codec->dev, "ep92 audio_path changed to %d\n", val);
 		if (val)
 			ep92_send_uevent(ep92, "EP92EVT_AUDIO_PATH=TV");
 		else
@@ -408,7 +388,7 @@ static void ep92_read_general_control(struct snd_soc_codec *codec,
 	if (change & EP92_GC_CEC_MUTE_MASK) {
 		val = (ep92->gc.ctl >> EP92_GC_CEC_MUTE_SHIFT) &
 			EP92_2CHOICE_MASK;
-		pr_debug("ep92 cec_mute changed to %d\n", val);
+		dev_dbg(codec->dev, "ep92 cec_mute changed to %d\n", val);
 		if (val)
 			ep92_send_uevent(ep92, "EP92EVT_CEC_MUTE=NORMAL");
 		else
@@ -416,7 +396,7 @@ static void ep92_read_general_control(struct snd_soc_codec *codec,
 	}
 	if (change & EP92_GC_ARC_EN_MASK) {
 		val = ep92->gc.ctl & EP92_2CHOICE_MASK;
-		pr_debug("ep92 arc_en changed to %d\n", val);
+		dev_dbg(codec->dev, "ep92 arc_en changed to %d\n", val);
 		if (val)
 			ep92_send_uevent(ep92, "EP92EVT_ARC_EN=ON");
 		else
@@ -426,33 +406,33 @@ static void ep92_read_general_control(struct snd_soc_codec *codec,
 	old = ep92->gc.rx_sel;
 	ep92->gc.rx_sel = snd_soc_read(codec, EP92_GENERAL_CONTROL_1);
 	if (ep92->gc.rx_sel == 0xff) {
-		pr_debug("ep92 EP92_GENERAL_CONTROL_1 read 0xff\n");
+		dev_dbg(codec->dev, "ep92 EP92_GENERAL_CONTROL_1 read 0xff\n");
 		ep92->gc.rx_sel = old;
 	}
 	change = ep92->gc.rx_sel ^ old;
 	if (change & EP92_GC_RX_SEL_MASK) {
 		val = ep92->gc.rx_sel & EP92_GC_RX_SEL_MASK;
-		pr_debug("ep92 rx_sel changed to %d\n", val);
+		dev_dbg(codec->dev, "ep92 rx_sel changed to %d\n", val);
 		ep92_send_uevent(ep92, "EP92EVT_SRC_SEL=CHANGED");
 	}
 
 	old = ep92->gc.cec_volume;
 	ep92->gc.cec_volume = snd_soc_read(codec, EP92_GENERAL_CONTROL_3);
 	if (ep92->gc.cec_volume == 0xff) {
-		pr_debug("ep92 EP92_GENERAL_CONTROL_3 read 0xff\n");
+		dev_dbg(codec->dev, "ep92 EP92_GENERAL_CONTROL_3 read 0xff\n");
 		ep92->gc.cec_volume = old;
 	}
 	change = ep92->gc.cec_volume ^ old;
 	if (change & EP92_GC_CEC_VOLUME_MASK) {
 		val = ep92->gc.cec_volume & EP92_GC_CEC_VOLUME_MASK;
-		pr_debug("ep92 cec_volume changed to %d\n", val);
+		dev_dbg(codec->dev, "ep92 cec_volume changed to %d\n", val);
 		ep92_send_uevent(ep92, "EP92EVT_CEC_VOLUME=CHANGED");
 	}
 
 	old = ep92->gc.link;
 	ep92->gc.link = snd_soc_read(codec, EP92_GENERAL_CONTROL_4);
 	if (ep92->gc.link == 0xff) {
-		pr_debug("ep92 EP92_GENERAL_CONTROL_4 read 0xff\n");
+		dev_dbg(codec->dev, "ep92 EP92_GENERAL_CONTROL_4 read 0xff\n");
 		ep92->gc.link = old;
 	}
 
@@ -463,7 +443,7 @@ static void ep92_read_general_control(struct snd_soc_codec *codec,
 			if ((ep92->hyst_link_on0 == EP92_HYST_CNT) &&
 			    (ep92->filt_link_on0 == 0)) {
 				ep92->filt_link_on0 = 1;
-				pr_debug("ep92 link_on0 changed to 1\n");
+				dev_dbg(codec->dev, "ep92 link_on0 changed to 1\n");
 				ep92_send_uevent(ep92,
 					"EP92EVT_LINK_ON0=CONNECTED");
 			}
@@ -474,7 +454,7 @@ static void ep92_read_general_control(struct snd_soc_codec *codec,
 			if ((ep92->hyst_link_on0 == 0) &&
 			    (ep92->filt_link_on0 == 1)) {
 				ep92->filt_link_on0 = 0;
-				pr_debug("ep92 link_on0 changed to 0\n");
+				dev_dbg(codec->dev, "ep92 link_on0 changed to 0\n");
 				ep92_send_uevent(ep92,
 					"EP92EVT_LINK_ON0=DISCONNECTED");
 			}
@@ -488,7 +468,7 @@ static void ep92_read_general_control(struct snd_soc_codec *codec,
 			if ((ep92->hyst_link_on1 == EP92_HYST_CNT) &&
 			    (ep92->filt_link_on1 == 0)) {
 				ep92->filt_link_on1 = 1;
-				pr_debug("ep92 link_on1 changed to 1\n");
+				dev_dbg(codec->dev, "ep92 link_on1 changed to 1\n");
 				ep92_send_uevent(ep92,
 					"EP92EVT_LINK_ON1=CONNECTED");
 			}
@@ -499,7 +479,7 @@ static void ep92_read_general_control(struct snd_soc_codec *codec,
 			if ((ep92->hyst_link_on1 == 0) &&
 			    (ep92->filt_link_on1 == 1)) {
 				ep92->filt_link_on1 = 0;
-				pr_debug("ep92 link_on1 changed to 0\n");
+				dev_dbg(codec->dev, "ep92 link_on1 changed to 0\n");
 				ep92_send_uevent(ep92,
 					"EP92EVT_LINK_ON1=DISCONNECTED");
 			}
@@ -513,7 +493,7 @@ static void ep92_read_general_control(struct snd_soc_codec *codec,
 			if ((ep92->hyst_link_on2 == EP92_HYST_CNT) &&
 			    (ep92->filt_link_on2 == 0)) {
 				ep92->filt_link_on2 = 1;
-				pr_debug("ep92 link_on2 changed to 1\n");
+				dev_dbg(codec->dev, "ep92 link_on2 changed to 1\n");
 				ep92_send_uevent(ep92,
 					"EP92EVT_LINK_ON2=CONNECTED");
 			}
@@ -524,7 +504,7 @@ static void ep92_read_general_control(struct snd_soc_codec *codec,
 			if ((ep92->hyst_link_on2 == 0) &&
 			    (ep92->filt_link_on2 == 1)) {
 				ep92->filt_link_on2 = 0;
-				pr_debug("ep92 link_on2 changed to 0\n");
+				dev_dbg(codec->dev, "ep92 link_on2 changed to 0\n");
 				ep92_send_uevent(ep92,
 					"EP92EVT_LINK_ON2=DISCONNECTED");
 			}
@@ -543,24 +523,24 @@ static void ep92_read_audio_info(struct snd_soc_codec *codec,
 	ep92->ai.system_status_0 = snd_soc_read(codec,
 		EP92_AUDIO_INFO_SYSTEM_STATUS_0);
 	if (ep92->ai.system_status_0 == 0xff) {
-		pr_debug("ep92 EP92_AUDIO_INFO_SYSTEM_STATUS_0 read 0xff\n");
+		dev_dbg(codec->dev, "ep92 EP92_AUDIO_INFO_SYSTEM_STATUS_0 read 0xff\n");
 		ep92->ai.system_status_0 = old;
 	}
 	change = ep92->ai.system_status_0 ^ old;
 	if (change & EP92_AI_MCLK_ON_MASK) {
-		pr_debug("ep92 status changed to %d\n",
+		dev_dbg(codec->dev, "ep92 status changed to %d\n",
 			(ep92->ai.system_status_0 >> EP92_AI_MCLK_ON_SHIFT) &
 			EP92_2CHOICE_MASK);
 		send_uevent = true;
 	}
 	if (change & EP92_AI_AVMUTE_MASK) {
-		pr_debug("ep92 avmute changed to %d\n",
+		dev_dbg(codec->dev, "ep92 avmute changed to %d\n",
 			(ep92->ai.system_status_0 >> EP92_AI_AVMUTE_SHIFT) &
 			EP92_2CHOICE_MASK);
 		send_uevent = true;
 	}
 	if (change & EP92_AI_LAYOUT_MASK) {
-		pr_debug("ep92 layout changed to %d\n",
+		dev_dbg(codec->dev, "ep92 layout changed to %d\n",
 			(ep92->ai.system_status_0) & EP92_2CHOICE_MASK);
 		send_uevent = true;
 	}
@@ -569,12 +549,12 @@ static void ep92_read_audio_info(struct snd_soc_codec *codec,
 	ep92->ai.audio_status = snd_soc_read(codec,
 		EP92_AUDIO_INFO_AUDIO_STATUS);
 	if (ep92->ai.audio_status == 0xff) {
-		pr_debug("ep92 EP92_AUDIO_INFO_AUDIO_STATUS read 0xff\n");
+		dev_dbg(codec->dev, "ep92 EP92_AUDIO_INFO_AUDIO_STATUS read 0xff\n");
 		ep92->ai.audio_status = old;
 	}
 	change = ep92->ai.audio_status ^ old;
 	if (change & EP92_AI_RATE_MASK) {
-		pr_debug("ep92 rate changed to %d\n",
+		dev_dbg(codec->dev, "ep92 rate changed to %d\n",
 			ep92_samp_freq_table[(ep92->ai.audio_status) &
 			EP92_AI_RATE_MASK]);
 		send_uevent = true;
@@ -586,7 +566,7 @@ static void ep92_read_audio_info(struct snd_soc_codec *codec,
 		ep92->ai.cs[0] = snd_soc_read(codec,
 			EP92_AUDIO_INFO_CHANNEL_STATUS_0);
 		if (ep92->ai.cs[0] == 0xff) {
-			pr_debug("ep92 EP92_AUDIO_INFO_CHANNEL_STATUS_0 read 0xff\n");
+			dev_dbg(codec->dev, "ep92 EP92_AUDIO_INFO_CHANNEL_STATUS_0 read 0xff\n");
 			ep92->ai.cs[0] = old;
 		}
 		if (ep92->ai.cs[0] & EP92_AI_NPCM_MASK)
@@ -597,7 +577,7 @@ static void ep92_read_audio_info(struct snd_soc_codec *codec,
 		new_mode = 1; /* Compr */
 
 	if (ep92->old_mode != new_mode) {
-		pr_debug("ep92 mode changed to %d\n", new_mode);
+		dev_dbg(codec->dev, "ep92 mode changed to %d\n", new_mode);
 		send_uevent = true;
 	}
 	ep92->old_mode = new_mode;
@@ -605,12 +585,12 @@ static void ep92_read_audio_info(struct snd_soc_codec *codec,
 	old = ep92->ai.cc;
 	ep92->ai.cc = snd_soc_read(codec, EP92_AUDIO_INFO_ADO_INFO_FRAME_1);
 	if (ep92->ai.cc == 0xff) {
-		pr_debug("ep92 EP92_AUDIO_INFO_ADO_INFO_FRAME_1 read 0xff\n");
+		dev_dbg(codec->dev, "ep92 EP92_AUDIO_INFO_ADO_INFO_FRAME_1 read 0xff\n");
 		ep92->ai.cc = old;
 	}
 	change = ep92->ai.cc ^ old;
 	if (change & EP92_AI_CH_COUNT_MASK) {
-		pr_debug("ep92 ch_count changed to %d (%d)\n",
+		dev_dbg(codec->dev, "ep92 ch_count changed to %d (%d)\n",
 			ep92->ai.cc & EP92_AI_CH_COUNT_MASK,
 			(ep92->ai.cc & EP92_AI_CH_COUNT_MASK) == 0 ? 0 :
 			(ep92->ai.cc & EP92_AI_CH_COUNT_MASK) + 1);
@@ -620,12 +600,12 @@ static void ep92_read_audio_info(struct snd_soc_codec *codec,
 	old = ep92->ai.ca;
 	ep92->ai.ca = snd_soc_read(codec, EP92_AUDIO_INFO_ADO_INFO_FRAME_4);
 	if (ep92->ai.ca == 0xff) {
-		pr_debug("ep92 EP92_AUDIO_INFO_ADO_INFO_FRAME_4 read 0xff\n");
+		dev_dbg(codec->dev, "ep92 EP92_AUDIO_INFO_ADO_INFO_FRAME_4 read 0xff\n");
 		ep92->ai.ca = old;
 	}
 	change = ep92->ai.ca ^ old;
 	if (change & EP92_AI_CH_ALLOC_MASK) {
-		pr_debug("ep92 ch_alloc changed to 0x%02x\n",
+		dev_dbg(codec->dev, "ep92 ch_alloc changed to 0x%02x\n",
 			(ep92->ai.ca) & EP92_AI_CH_ALLOC_MASK);
 		send_uevent = true;
 	}
@@ -636,6 +616,22 @@ static void ep92_read_audio_info(struct snd_soc_codec *codec,
 
 static void ep92_init(struct snd_soc_codec *codec, struct ep92_pdata *ep92)
 {
+	int reg0 = 0;
+	int reg1 = 0;
+	int reg2 = 0;
+	int reg3 = 0;
+
+	if (!ep92 || !codec)
+		return;
+
+	reg0 = snd_soc_read(codec, EP92_BI_VERSION_YEAR);
+	reg1 = snd_soc_read(codec, EP92_BI_VERSION_MONTH);
+	reg2 = snd_soc_read(codec, EP92_BI_VERSION_DATE);
+	reg3 = snd_soc_read(codec, EP92_BI_VERSION_NUM);
+
+	dev_info(codec->dev, "ep92 version info %02d/%02d/%02d %d\n",
+		reg0, reg1, reg2, reg3);
+
 	/* update the format information in mixer controls */
 	ep92_read_general_control(codec, ep92);
 	ep92_read_audio_info(codec, ep92);
@@ -647,6 +643,12 @@ static int ep92_probe(struct snd_soc_codec *codec)
 
 	ep92->codec = codec;
 	ep92_init(codec, ep92);
+
+	/* start polling when codec is registered */
+	if (ep92->irq == 0) {
+		mod_timer(&ep92->timer, jiffies +
+			msecs_to_jiffies(EP92_POLL_INTERVAL_OFF_MSEC));
+	}
 
 	return 0;
 }
@@ -705,10 +707,10 @@ void ep92_read_status(struct work_struct *work)
 	}
 
 	if (val & EP92_GI_ADO_CHF_MASK)
-		pr_debug("ep92 audio mode change trigger.\n");
+		dev_dbg(codec->dev, "ep92 audio mode change trigger.\n");
 
 	if (val & EP92_GI_CEC_ECF_MASK)
-		pr_debug("ep92 CEC change trigger.\n");
+		dev_dbg(codec->dev, "ep92 CEC change trigger.\n");
 
 	/* check for general control changes */
 	ep92_read_general_control(codec, ep92);
@@ -754,6 +756,60 @@ static const struct of_device_id ep92_of_match[] = {
 };
 MODULE_DEVICE_TABLE(of, ep92_of_match);
 
+static ssize_t ep92_sysfs_rda_chipid(struct device *dev,
+	struct device_attribute *attr, char *buf)
+{
+	ssize_t ret = 0;
+	int reg0 = 0;
+	int reg1 = 0;
+	int reg2 = 0;
+	int reg3 = 0;
+	struct ep92_pdata *ep92 = dev_get_drvdata(dev);
+
+	if (!ep92 || !ep92->codec) {
+		dev_err(dev, "%s: device error\n", __func__);
+		return -ENODEV;
+	}
+
+	reg0 = snd_soc_read(ep92->codec, EP92_BI_VENDOR_ID_0);
+	reg1 = snd_soc_read(ep92->codec, EP92_BI_VENDOR_ID_1);
+	reg2 = snd_soc_read(ep92->codec, EP92_BI_DEVICE_ID_0);
+	reg3 = snd_soc_read(ep92->codec, EP92_BI_DEVICE_ID_1);
+
+	ret = snprintf(buf, EP92_SYSFS_ENTRY_MAX_LEN, "%02x%02x/%02x%02x\n",
+		reg0, reg1, reg2, reg3);
+	dev_dbg(dev, "%s: '%s'\n", __func__, buf);
+
+	return ret;
+}
+
+static ssize_t ep92_sysfs_rda_version(struct device *dev,
+	struct device_attribute *attr, char *buf)
+{
+	ssize_t ret = 0;
+	int reg0 = 0;
+	int reg1 = 0;
+	int reg2 = 0;
+	int reg3 = 0;
+	struct ep92_pdata *ep92 = dev_get_drvdata(dev);
+
+	if (!ep92 || !ep92->codec) {
+		dev_err(dev, "%s: device error\n", __func__);
+		return -ENODEV;
+	}
+
+	reg0 = snd_soc_read(ep92->codec, EP92_BI_VERSION_YEAR);
+	reg1 = snd_soc_read(ep92->codec, EP92_BI_VERSION_MONTH);
+	reg2 = snd_soc_read(ep92->codec, EP92_BI_VERSION_DATE);
+	reg3 = snd_soc_read(ep92->codec, EP92_BI_VERSION_NUM);
+
+	ret = snprintf(buf, EP92_SYSFS_ENTRY_MAX_LEN, "%02d/%02d/%02d %d\n",
+		reg0, reg1, reg2, reg3);
+	dev_dbg(dev, "%s: '%s'\n", __func__, buf);
+
+	return ret;
+}
+
 static ssize_t ep92_sysfs_rda_audio_state(struct device *dev,
 	struct device_attribute *attr, char *buf)
 {
@@ -761,16 +817,16 @@ static ssize_t ep92_sysfs_rda_audio_state(struct device *dev,
 	int val;
 	struct ep92_pdata *ep92 = dev_get_drvdata(dev);
 
-	if (!ep92) {
-		pr_err("%s: invalid input\n", __func__);
-		return -EINVAL;
+	if (!ep92 || !ep92->codec) {
+		dev_err(dev, "%s: device error\n", __func__);
+		return -ENODEV;
 	}
 
 	val = (ep92->ai.system_status_0 & EP92_AI_MCLK_ON_MASK) >>
 		EP92_AI_MCLK_ON_SHIFT;
 
 	ret = snprintf(buf, EP92_SYSFS_ENTRY_MAX_LEN, "%d\n", val);
-	pr_debug("%s: '%d'\n", __func__, val);
+	dev_dbg(dev, "%s: '%d'\n", __func__, val);
 
 	return ret;
 }
@@ -782,15 +838,15 @@ static ssize_t ep92_sysfs_rda_audio_format(struct device *dev,
 	int val;
 	struct ep92_pdata *ep92 = dev_get_drvdata(dev);
 
-	if (!ep92) {
-		pr_err("%s: invalid input\n", __func__);
-		return -EINVAL;
+	if (!ep92 || !ep92->codec) {
+		dev_err(dev, "%s: device error\n", __func__);
+		return -ENODEV;
 	}
 
 	val = ep92->old_mode;
 
 	ret = snprintf(buf, EP92_SYSFS_ENTRY_MAX_LEN, "%d\n", val);
-	pr_debug("%s: '%d'\n", __func__, val);
+	dev_dbg(dev, "%s: '%d'\n", __func__, val);
 
 	return ret;
 }
@@ -802,15 +858,15 @@ static ssize_t ep92_sysfs_rda_audio_rate(struct device *dev,
 	int val;
 	struct ep92_pdata *ep92 = dev_get_drvdata(dev);
 
-	if (!ep92) {
-		pr_err("%s: invalid input\n", __func__);
-		return -EINVAL;
+	if (!ep92 || !ep92->codec) {
+		dev_err(dev, "%s: device error\n", __func__);
+		return -ENODEV;
 	}
 
 	val = ep92_samp_freq_table[(ep92->ai.audio_status) &
 				   EP92_AI_RATE_MASK];
 	ret = snprintf(buf, EP92_SYSFS_ENTRY_MAX_LEN, "%d\n", val);
-	pr_debug("%s: '%d'\n", __func__, val);
+	dev_dbg(dev, "%s: '%d'\n", __func__, val);
 
 	return ret;
 }
@@ -822,16 +878,16 @@ static ssize_t ep92_sysfs_rda_audio_layout(struct device *dev,
 	int val;
 	struct ep92_pdata *ep92 = dev_get_drvdata(dev);
 
-	if (!ep92) {
-		pr_err("%s: invalid input\n", __func__);
-		return -EINVAL;
+	if (!ep92 || !ep92->codec) {
+		dev_err(dev, "%s: device error\n", __func__);
+		return -ENODEV;
 	}
 
 	val = (ep92->ai.system_status_0 & EP92_AI_LAYOUT_MASK) >>
 		EP92_AI_LAYOUT_SHIFT;
 
 	ret = snprintf(buf, EP92_SYSFS_ENTRY_MAX_LEN, "%d\n", val);
-	pr_debug("%s: '%d'\n", __func__, val);
+	dev_dbg(dev, "%s: '%d'\n", __func__, val);
 
 	return ret;
 }
@@ -843,9 +899,9 @@ static ssize_t ep92_sysfs_rda_audio_ch_count(struct device *dev,
 	int val;
 	struct ep92_pdata *ep92 = dev_get_drvdata(dev);
 
-	if (!ep92) {
-		pr_err("%s: invalid input\n", __func__);
-		return -EINVAL;
+	if (!ep92 || !ep92->codec) {
+		dev_err(dev, "%s: device error\n", __func__);
+		return -ENODEV;
 	}
 
 	val = ep92->ai.cc & EP92_AI_CH_COUNT_MASK;
@@ -854,7 +910,7 @@ static ssize_t ep92_sysfs_rda_audio_ch_count(struct device *dev,
 		val += 1;
 
 	ret = snprintf(buf, EP92_SYSFS_ENTRY_MAX_LEN, "%d\n", val);
-	pr_debug("%s: '%d'\n", __func__, val);
+	dev_dbg(dev, "%s: '%d'\n", __func__, val);
 
 	return ret;
 }
@@ -866,15 +922,15 @@ static ssize_t ep92_sysfs_rda_audio_ch_alloc(struct device *dev,
 	int val;
 	struct ep92_pdata *ep92 = dev_get_drvdata(dev);
 
-	if (!ep92) {
-		pr_err("%s: invalid input\n", __func__);
-		return -EINVAL;
+	if (!ep92 || !ep92->codec) {
+		dev_err(dev, "%s: device error\n", __func__);
+		return -ENODEV;
 	}
 
 	val = ep92->ai.ca & EP92_AI_CH_ALLOC_MASK;
 
 	ret = snprintf(buf, EP92_SYSFS_ENTRY_MAX_LEN, "%d\n", val);
-	pr_debug("%s: '%d'\n", __func__, val);
+	dev_dbg(dev, "%s: '%d'\n", __func__, val);
 
 	return ret;
 }
@@ -886,9 +942,9 @@ static ssize_t ep92_sysfs_rda_avmute(struct device *dev,
 	int val;
 	struct ep92_pdata *ep92 = dev_get_drvdata(dev);
 
-	if (!ep92) {
-		pr_err("%s: invalid input\n", __func__);
-		return -EINVAL;
+	if (!ep92 || !ep92->codec) {
+		dev_err(dev, "%s: device error\n", __func__);
+		return -ENODEV;
 	}
 
 
@@ -896,7 +952,7 @@ static ssize_t ep92_sysfs_rda_avmute(struct device *dev,
 		EP92_2CHOICE_MASK;
 
 	ret = snprintf(buf, EP92_SYSFS_ENTRY_MAX_LEN, "%d\n", val);
-	pr_debug("%s: '%d'\n", __func__, val);
+	dev_dbg(dev, "%s: '%d'\n", __func__, val);
 
 	return ret;
 }
@@ -908,15 +964,15 @@ static ssize_t ep92_sysfs_rda_link_on0(struct device *dev,
 	int val;
 	struct ep92_pdata *ep92 = dev_get_drvdata(dev);
 
-	if (!ep92) {
-		pr_err("%s: invalid input\n", __func__);
-		return -EINVAL;
+	if (!ep92 || !ep92->codec) {
+		dev_err(dev, "%s: device error\n", __func__);
+		return -ENODEV;
 	}
 
 	val = ep92->filt_link_on0;
 
 	ret = snprintf(buf, EP92_SYSFS_ENTRY_MAX_LEN, "%d\n", val);
-	pr_debug("%s: '%d'\n", __func__, val);
+	dev_dbg(dev, "%s: '%d'\n", __func__, val);
 
 	return ret;
 }
@@ -928,15 +984,15 @@ static ssize_t ep92_sysfs_rda_link_on1(struct device *dev,
 	int val;
 	struct ep92_pdata *ep92 = dev_get_drvdata(dev);
 
-	if (!ep92) {
-		pr_err("%s: invalid input\n", __func__);
-		return -EINVAL;
+	if (!ep92 || !ep92->codec) {
+		dev_err(dev, "%s: device error\n", __func__);
+		return -ENODEV;
 	}
 
 	val = ep92->filt_link_on1;
 
 	ret = snprintf(buf, EP92_SYSFS_ENTRY_MAX_LEN, "%d\n", val);
-	pr_debug("%s: '%d'\n", __func__, val);
+	dev_dbg(dev, "%s: '%d'\n", __func__, val);
 
 	return ret;
 }
@@ -948,15 +1004,15 @@ static ssize_t ep92_sysfs_rda_link_on2(struct device *dev,
 	int val;
 	struct ep92_pdata *ep92 = dev_get_drvdata(dev);
 
-	if (!ep92) {
-		pr_err("%s: invalid input\n", __func__);
-		return -EINVAL;
+	if (!ep92 || !ep92->codec) {
+		dev_err(dev, "%s: device error\n", __func__);
+		return -ENODEV;
 	}
 
 	val = ep92->filt_link_on2;
 
 	ret = snprintf(buf, EP92_SYSFS_ENTRY_MAX_LEN, "%d\n", val);
-	pr_debug("%s: '%d'\n", __func__, val);
+	dev_dbg(dev, "%s: '%d'\n", __func__, val);
 
 	return ret;
 }
@@ -968,15 +1024,15 @@ static ssize_t ep92_sysfs_rda_out_plug(struct device *dev,
 	int val;
 	struct ep92_pdata *ep92 = dev_get_drvdata(dev);
 
-	if (!ep92) {
-		pr_err("%s: invalid input\n", __func__);
-		return -EINVAL;
+	if (!ep92 || !ep92->codec) {
+		dev_err(dev, "%s: device error\n", __func__);
+		return -ENODEV;
 	}
 
 	val = ep92->filt_tx_plug;
 
 	ret = snprintf(buf, EP92_SYSFS_ENTRY_MAX_LEN, "%d\n", val);
-	pr_debug("%s: '%d'\n", __func__, val);
+	dev_dbg(dev, "%s: '%d'\n", __func__, val);
 
 	return ret;
 }
@@ -988,9 +1044,9 @@ static ssize_t ep92_sysfs_rda_video_latency(struct device *dev,
 	int val;
 	struct ep92_pdata *ep92 = dev_get_drvdata(dev);
 
-	if (!ep92) {
-		pr_err("%s: invalid input\n", __func__);
-		return -EINVAL;
+	if (!ep92 || !ep92->codec) {
+		dev_err(dev, "%s: device error\n", __func__);
+		return -ENODEV;
 	}
 
 	val = ep92->gi.video_latency & EP92_GI_VIDEO_LATENCY_MASK;
@@ -998,7 +1054,7 @@ static ssize_t ep92_sysfs_rda_video_latency(struct device *dev,
 		val = (val - 1) * 2;
 
 	ret = snprintf(buf, EP92_SYSFS_ENTRY_MAX_LEN, "%d\n", val);
-	pr_debug("%s: '%d'\n", __func__, val);
+	dev_dbg(dev, "%s: '%d'\n", __func__, val);
 
 	return ret;
 }
@@ -1010,16 +1066,16 @@ static ssize_t ep92_sysfs_rda_arc_disable(struct device *dev,
 	int val;
 	struct ep92_pdata *ep92 = dev_get_drvdata(dev);
 
-	if (!ep92) {
-		pr_err("%s: invalid input\n", __func__);
-		return -EINVAL;
+	if (!ep92 || !ep92->codec) {
+		dev_err(dev, "%s: device error\n", __func__);
+		return -ENODEV;
 	}
 
 	val = (ep92->gc.ctl2 >> EP92_GC_ARC_DIS_SHIFT) &
 		EP92_2CHOICE_MASK;
 
 	ret = snprintf(buf, EP92_SYSFS_ENTRY_MAX_LEN, "%d\n", val);
-	pr_debug("%s: '%d'\n", __func__, val);
+	dev_dbg(dev, "%s: '%d'\n", __func__, val);
 
 	return ret;
 }
@@ -1030,18 +1086,18 @@ static ssize_t ep92_sysfs_wta_arc_disable(struct device *dev,
 	int reg, val, rc;
 	struct ep92_pdata *ep92 = dev_get_drvdata(dev);
 
-	if (!ep92) {
-		pr_err("%s: invalid input\n", __func__);
-		return -EINVAL;
+	if (!ep92 || !ep92->codec) {
+		dev_err(dev, "%s: device error\n", __func__);
+		return -ENODEV;
 	}
 
 	rc = kstrtoint(buf, 10, &val);
 	if (rc) {
-		pr_err("%s: kstrtoint failed. rc=%d\n", __func__, rc);
+		dev_err(dev, "%s: kstrtoint failed. rc=%d\n", __func__, rc);
 		goto end;
 	}
 	if ((val < 0) || (val > 1)) {
-		pr_err("%s: value out of range.\n", __func__);
+		dev_err(dev, "%s: value out of range.\n", __func__);
 		rc = -EINVAL;
 		goto end;
 	}
@@ -1065,15 +1121,15 @@ static ssize_t ep92_sysfs_rda_power(struct device *dev,
 	int val;
 	struct ep92_pdata *ep92 = dev_get_drvdata(dev);
 
-	if (!ep92) {
-		pr_err("%s: invalid input\n", __func__);
-		return -EINVAL;
+	if (!ep92 || !ep92->codec) {
+		dev_err(dev, "%s: device error\n", __func__);
+		return -ENODEV;
 	}
 
 	val = (ep92->gc.ctl >> EP92_GC_POWER_SHIFT) & EP92_2CHOICE_MASK;
 
 	ret = snprintf(buf, EP92_SYSFS_ENTRY_MAX_LEN, "%d\n", val);
-	pr_debug("%s: '%d'\n", __func__, val);
+	dev_dbg(dev, "%s: '%d'\n", __func__, val);
 
 	return ret;
 }
@@ -1084,18 +1140,18 @@ static ssize_t ep92_sysfs_wta_power(struct device *dev,
 	int reg, val, rc;
 	struct ep92_pdata *ep92 = dev_get_drvdata(dev);
 
-	if (!ep92) {
-		pr_err("%s: invalid input\n", __func__);
-		return -EINVAL;
+	if (!ep92 || !ep92->codec) {
+		dev_err(dev, "%s: device error\n", __func__);
+		return -ENODEV;
 	}
 
 	rc = kstrtoint(buf, 10, &val);
 	if (rc) {
-		pr_err("%s: kstrtoint failed. rc=%d\n", __func__, rc);
+		dev_err(dev, "%s: kstrtoint failed. rc=%d\n", __func__, rc);
 		goto end;
 	}
 	if ((val < 0) || (val > 1)) {
-		pr_err("%s: value out of range.\n", __func__);
+		dev_err(dev, "%s: value out of range.\n", __func__);
 		rc = -EINVAL;
 		goto end;
 	}
@@ -1119,15 +1175,15 @@ static ssize_t ep92_sysfs_rda_audio_path(struct device *dev,
 	int val;
 	struct ep92_pdata *ep92 = dev_get_drvdata(dev);
 
-	if (!ep92) {
-		pr_err("%s: invalid input\n", __func__);
-		return -EINVAL;
+	if (!ep92 || !ep92->codec) {
+		dev_err(dev, "%s: device error\n", __func__);
+		return -ENODEV;
 	}
 
 	val = (ep92->gc.ctl >> EP92_GC_AUDIO_PATH_SHIFT) & EP92_2CHOICE_MASK;
 
 	ret = snprintf(buf, EP92_SYSFS_ENTRY_MAX_LEN, "%d\n", val);
-	pr_debug("%s: '%d'\n", __func__, val);
+	dev_dbg(dev, "%s: '%d'\n", __func__, val);
 
 	return ret;
 }
@@ -1138,18 +1194,18 @@ static ssize_t ep92_sysfs_wta_audio_path(struct device *dev,
 	int reg, val, rc;
 	struct ep92_pdata *ep92 = dev_get_drvdata(dev);
 
-	if (!ep92) {
-		pr_err("%s: invalid input\n", __func__);
-		return -EINVAL;
+	if (!ep92 || !ep92->codec) {
+		dev_err(dev, "%s: device error\n", __func__);
+		return -ENODEV;
 	}
 
 	rc = kstrtoint(buf, 10, &val);
 	if (rc) {
-		pr_err("%s: kstrtoint failed. rc=%d\n", __func__, rc);
+		dev_err(dev, "%s: kstrtoint failed. rc=%d\n", __func__, rc);
 		goto end;
 	}
 	if ((val < 0) || (val > 1)) {
-		pr_err("%s: value out of range.\n", __func__);
+		dev_err(dev, "%s: value out of range.\n", __func__);
 		rc = -EINVAL;
 		goto end;
 	}
@@ -1174,15 +1230,15 @@ static ssize_t ep92_sysfs_rda_src_sel(struct device *dev,
 	int val;
 	struct ep92_pdata *ep92 = dev_get_drvdata(dev);
 
-	if (!ep92) {
-		pr_err("%s: invalid input\n", __func__);
-		return -EINVAL;
+	if (!ep92 || !ep92->codec) {
+		dev_err(dev, "%s: device error\n", __func__);
+		return -ENODEV;
 	}
 
 	val = ep92->gc.rx_sel & EP92_GC_RX_SEL_MASK;
 
 	ret = snprintf(buf, EP92_SYSFS_ENTRY_MAX_LEN, "%d\n", val);
-	pr_debug("%s: '%d'\n", __func__, val);
+	dev_dbg(dev, "%s: '%d'\n", __func__, val);
 
 	return ret;
 }
@@ -1193,18 +1249,18 @@ static ssize_t ep92_sysfs_wta_src_sel(struct device *dev,
 	int reg, val, rc;
 	struct ep92_pdata *ep92 = dev_get_drvdata(dev);
 
-	if (!ep92) {
-		pr_err("%s: invalid input\n", __func__);
-		return -EINVAL;
+	if (!ep92 || !ep92->codec) {
+		dev_err(dev, "%s: device error\n", __func__);
+		return -ENODEV;
 	}
 
 	rc = kstrtoint(buf, 10, &val);
 	if (rc) {
-		pr_err("%s: kstrtoint failed. rc=%d\n", __func__, rc);
+		dev_err(dev, "%s: kstrtoint failed. rc=%d\n", __func__, rc);
 		goto end;
 	}
 	if ((val < 0) || (val > 7)) {
-		pr_err("%s: value out of range.\n", __func__);
+		dev_err(dev, "%s: value out of range.\n", __func__);
 		rc = -EINVAL;
 		goto end;
 	}
@@ -1228,15 +1284,15 @@ static ssize_t ep92_sysfs_rda_arc_enable(struct device *dev,
 	int val;
 	struct ep92_pdata *ep92 = dev_get_drvdata(dev);
 
-	if (!ep92) {
-		pr_err("%s: invalid input\n", __func__);
-		return -EINVAL;
+	if (!ep92 || !ep92->codec) {
+		dev_err(dev, "%s: device error\n", __func__);
+		return -ENODEV;
 	}
 
 	val = (ep92->gc.ctl >> EP92_GC_ARC_EN_SHIFT) & EP92_2CHOICE_MASK;
 
 	ret = snprintf(buf, EP92_SYSFS_ENTRY_MAX_LEN, "%d\n", val);
-	pr_debug("%s: '%d'\n", __func__, val);
+	dev_dbg(dev, "%s: '%d'\n", __func__, val);
 
 	return ret;
 }
@@ -1247,18 +1303,18 @@ static ssize_t ep92_sysfs_wta_arc_enable(struct device *dev,
 	int reg, val, rc;
 	struct ep92_pdata *ep92 = dev_get_drvdata(dev);
 
-	if (!ep92) {
-		pr_err("%s: invalid input\n", __func__);
-		return -EINVAL;
+	if (!ep92 || !ep92->codec) {
+		dev_err(dev, "%s: device error\n", __func__);
+		return -ENODEV;
 	}
 
 	rc = kstrtoint(buf, 10, &val);
 	if (rc) {
-		pr_err("%s: kstrtoint failed. rc=%d\n", __func__, rc);
+		dev_err(dev, "%s: kstrtoint failed. rc=%d\n", __func__, rc);
 		goto end;
 	}
 	if ((val < 0) || (val > 1)) {
-		pr_err("%s: value out of range.\n", __func__);
+		dev_err(dev, "%s: value out of range.\n", __func__);
 		rc = -EINVAL;
 		goto end;
 	}
@@ -1283,15 +1339,15 @@ static ssize_t ep92_sysfs_rda_cec_mute(struct device *dev,
 	int val;
 	struct ep92_pdata *ep92 = dev_get_drvdata(dev);
 
-	if (!ep92) {
-		pr_err("%s: invalid input\n", __func__);
-		return -EINVAL;
+	if (!ep92 || !ep92->codec) {
+		dev_err(dev, "%s: device error\n", __func__);
+		return -ENODEV;
 	}
 
 	val = (ep92->gc.ctl >> EP92_GC_CEC_MUTE_SHIFT) & EP92_2CHOICE_MASK;
 
 	ret = snprintf(buf, EP92_SYSFS_ENTRY_MAX_LEN, "%d\n", val);
-	pr_debug("%s: '%d'\n", __func__, val);
+	dev_dbg(dev, "%s: '%d'\n", __func__, val);
 
 	return ret;
 }
@@ -1302,18 +1358,18 @@ static ssize_t ep92_sysfs_wta_cec_mute(struct device *dev,
 	int reg, val, rc;
 	struct ep92_pdata *ep92 = dev_get_drvdata(dev);
 
-	if (!ep92) {
-		pr_err("%s: invalid input\n", __func__);
-		return -EINVAL;
+	if (!ep92 || !ep92->codec) {
+		dev_err(dev, "%s: device error\n", __func__);
+		return -ENODEV;
 	}
 
 	rc = kstrtoint(buf, 10, &val);
 	if (rc) {
-		pr_err("%s: kstrtoint failed. rc=%d\n", __func__, rc);
+		dev_err(dev, "%s: kstrtoint failed. rc=%d\n", __func__, rc);
 		goto end;
 	}
 	if ((val < 0) || (val > 1)) {
-		pr_err("%s: value out of range.\n", __func__);
+		dev_err(dev, "%s: value out of range.\n", __func__);
 		rc = -EINVAL;
 		goto end;
 	}
@@ -1338,16 +1394,16 @@ static ssize_t ep92_sysfs_rda_cec_volume(struct device *dev,
 	int val;
 	struct ep92_pdata *ep92 = dev_get_drvdata(dev);
 
-	if (!ep92) {
-		pr_err("%s: invalid input\n", __func__);
-		return -EINVAL;
+	if (!ep92 || !ep92->codec) {
+		dev_err(dev, "%s: device error\n", __func__);
+		return -ENODEV;
 	}
 
 	val = (ep92->gc.cec_volume >> EP92_GC_CEC_VOLUME_SHIFT) &
 		EP92_GC_CEC_VOLUME_MASK;
 
 	ret = snprintf(buf, EP92_SYSFS_ENTRY_MAX_LEN, "%d\n", val);
-	pr_debug("%s: '%d'\n", __func__, val);
+	dev_dbg(dev, "%s: '%d'\n", __func__, val);
 
 	return ret;
 }
@@ -1358,18 +1414,18 @@ static ssize_t ep92_sysfs_wta_cec_volume(struct device *dev,
 	int reg, val, rc;
 	struct ep92_pdata *ep92 = dev_get_drvdata(dev);
 
-	if (!ep92) {
-		pr_err("%s: invalid input\n", __func__);
-		return -EINVAL;
+	if (!ep92 || !ep92->codec) {
+		dev_err(dev, "%s: device error\n", __func__);
+		return -ENODEV;
 	}
 
 	rc = kstrtoint(buf, 10, &val);
 	if (rc) {
-		pr_err("%s: kstrtoint failed. rc=%d\n", __func__, rc);
+		dev_err(dev, "%s: kstrtoint failed. rc=%d\n", __func__, rc);
 		goto end;
 	}
 	if ((val < 0) || (val > EP92_GC_CEC_VOLUME_MAX)) {
-		pr_err("%s: value out of range.\n", __func__);
+		dev_err(dev, "%s: value out of range.\n", __func__);
 		rc = -EINVAL;
 		goto end;
 	}
@@ -1383,6 +1439,8 @@ end:
 	return rc;
 }
 
+static DEVICE_ATTR(chipid, 0444, ep92_sysfs_rda_chipid, NULL);
+static DEVICE_ATTR(version, 0444, ep92_sysfs_rda_version, NULL);
 static DEVICE_ATTR(audio_state, 0444, ep92_sysfs_rda_audio_state, NULL);
 static DEVICE_ATTR(audio_format, 0444, ep92_sysfs_rda_audio_format, NULL);
 static DEVICE_ATTR(audio_rate, 0444, ep92_sysfs_rda_audio_rate, NULL);
@@ -1410,6 +1468,8 @@ static DEVICE_ATTR(cec_volume, 0644, ep92_sysfs_rda_cec_volume,
 	ep92_sysfs_wta_cec_volume);
 
 static struct attribute *ep92_fs_attrs[] = {
+	&dev_attr_chipid.attr,
+	&dev_attr_version.attr,
 	&dev_attr_audio_state.attr,
 	&dev_attr_audio_format.attr,
 	&dev_attr_audio_rate.attr,
@@ -1495,8 +1555,6 @@ static int ep92_i2c_probe(struct i2c_client *client,
 	if (ep92->irq == 0) {
 		setup_timer(&ep92->timer, ep92_poll_status,
 			(unsigned long)ep92);
-		mod_timer(&ep92->timer, jiffies +
-			msecs_to_jiffies(EP92_POLL_INTERVAL_OFF_MSEC));
 	}
 
 #if IS_ENABLED(CONFIG_DEBUG_FS)
@@ -1536,15 +1594,15 @@ static int ep92_i2c_probe(struct i2c_client *client,
 	ret = snd_soc_register_codec(&client->dev, &soc_codec_drv_ep92,
 		ep92_dai, ARRAY_SIZE(ep92_dai));
 	if (ret) {
-		dev_err(&client->dev,
-			"%s %d: Failed to register CODEC: %d\n",
-			__func__,  __LINE__, ret);
+		dev_err(&client->dev, "%s %d: Failed to register CODEC: %d\n",
+			__func__, __LINE__, ret);
 		goto err_reg;
 	}
 
 	ret = ep92_sysfs_create(client, ep92);
 	if (ret) {
-		pr_err("%s: sysfs creation failed ret=%d\n", __func__, ret);
+		dev_err(&client->dev, "%s: sysfs creation failed ret=%d\n",
+			__func__, ret);
 		goto err_sysfs;
 	}
 
