@@ -1273,6 +1273,7 @@ CONFIG_HAVE_EBPF_JIT=y
 #
 # Device Drivers
 #
+# CONFIG_BUILTINS_ASYNC_PROBE is not set
 CONFIG_ARM_AMBA=y
 
 #
