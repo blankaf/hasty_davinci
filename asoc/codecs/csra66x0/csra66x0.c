@@ -27,6 +27,8 @@
 #include <linux/debugfs.h>
 #include "csra66x0.h"
 
+#define CSRA66X0_SYSFS_ENTRY_MAX_LEN 64
+
 /* CSRA66X0 register default values */
 static struct reg_default csra66x0_reg_defaults[] = {
 	{CSRA66X0_AUDIO_IF_RX_CONFIG1,           0x00},
@@ -210,8 +212,24 @@ static struct reg_default csra66x0_reg_defaults[] = {
 	/* RESERVED */
 };
 
+static bool csra66x0_addr_is_in_range(unsigned int addr,
+	unsigned int addr_min, unsigned int addr_max)
+{
+	if ((addr >= addr_min)
+			&& (addr <= addr_max))
+		return true;
+	else
+		return false;
+}
+
 static bool csra66x0_volatile_register(struct device *dev, unsigned int reg)
 {
+	/* coeff registers */
+	if (csra66x0_addr_is_in_range(reg, CSRA66X0_COEFF_BASE,
+		CSRA66X0_MAX_COEFF_ADDR))
+		return true;
+
+	/* control registers */
 	switch (reg) {
 	case CSRA66X0_CHIP_ID_FA:
 	case CSRA66X0_ROM_VER_FA:
@@ -219,6 +237,7 @@ static bool csra66x0_volatile_register(struct device *dev, unsigned int reg)
 	case CSRA66X0_CHIP_REV_1_FA:
 	case CSRA66X0_TEMP_READ0_FA:
 	case CSRA66X0_TEMP_READ1_FA:
+	case CSRA66X0_CHIP_STATE_CTRL_FA:
 	case CSRA66X0_MISC_CONTROL_STATUS_1_FA:
 	case CSRA66X0_IRQ_OUTPUT_STATUS_FA:
 	case CSRA66X0_CLIP_DCA_STATUS_FA:
@@ -228,6 +247,41 @@ static bool csra66x0_volatile_register(struct device *dev, unsigned int reg)
 	case CSRA66X0_AUDIO_IF_STATUS_FA:
 	case CSRA66X0_DSP_SATURATION_STATUS_FA:
 	case CSRA66X0_AUDIO_RATE_STATUS_FA:
+	case CSRA66X0_CH1_MIX_SEL:
+	case CSRA66X0_CH2_MIX_SEL:
+	case CSRA66X0_CH1_SAMPLE1_SCALE_0:
+	case CSRA66X0_CH1_SAMPLE1_SCALE_1:
+	case CSRA66X0_CH1_SAMPLE3_SCALE_0:
+	case CSRA66X0_CH1_SAMPLE3_SCALE_1:
+	case CSRA66X0_CH1_SAMPLE5_SCALE_0:
+	case CSRA66X0_CH1_SAMPLE5_SCALE_1:
+	case CSRA66X0_CH1_SAMPLE7_SCALE_0:
+	case CSRA66X0_CH1_SAMPLE7_SCALE_1:
+	case CSRA66X0_CH1_SAMPLE2_SCALE_0:
+	case CSRA66X0_CH1_SAMPLE2_SCALE_1:
+	case CSRA66X0_CH1_SAMPLE4_SCALE_0:
+	case CSRA66X0_CH1_SAMPLE4_SCALE_1:
+	case CSRA66X0_CH1_SAMPLE6_SCALE_0:
+	case CSRA66X0_CH1_SAMPLE6_SCALE_1:
+	case CSRA66X0_CH1_SAMPLE8_SCALE_0:
+	case CSRA66X0_CH1_SAMPLE8_SCALE_1:
+	case CSRA66X0_CH2_SAMPLE1_SCALE_0:
+	case CSRA66X0_CH2_SAMPLE1_SCALE_1:
+	case CSRA66X0_CH2_SAMPLE3_SCALE_0:
+	case CSRA66X0_CH2_SAMPLE3_SCALE_1:
+	case CSRA66X0_CH2_SAMPLE5_SCALE_0:
+	case CSRA66X0_CH2_SAMPLE5_SCALE_1:
+	case CSRA66X0_CH2_SAMPLE7_SCALE_0:
+	case CSRA66X0_CH2_SAMPLE7_SCALE_1:
+	case CSRA66X0_CH2_SAMPLE2_SCALE_0:
+	case CSRA66X0_CH2_SAMPLE2_SCALE_1:
+	case CSRA66X0_CH2_SAMPLE4_SCALE_0:
+	case CSRA66X0_CH2_SAMPLE4_SCALE_1:
+	case CSRA66X0_CH2_SAMPLE6_SCALE_0:
+	case CSRA66X0_CH2_SAMPLE6_SCALE_1:
+	case CSRA66X0_CH2_SAMPLE8_SCALE_0:
+	case CSRA66X0_CH2_SAMPLE8_SCALE_1:
+	case CSRA66X0_RAM_VER_FA:
 		return true;
 	default:
 		return false;
@@ -236,20 +290,24 @@ static bool csra66x0_volatile_register(struct device *dev, unsigned int reg)
 
 static bool csra66x0_writeable_registers(struct device *dev, unsigned int reg)
 {
-	if ((reg >= CSRA66X0_AUDIO_IF_RX_CONFIG1)
-			&& (reg <= CSRA66X0_MAX_REGISTER_ADDR))
+	if (csra66x0_addr_is_in_range(reg, CSRA66X0_BASE,
+		CSRA66X0_MAX_REGISTER_ADDR)
+		|| csra66x0_addr_is_in_range(reg, CSRA66X0_COEFF_BASE,
+		CSRA66X0_MAX_COEFF_ADDR))
 		return true;
-
-	return false;
+	else
+		return false;
 }
 
 static bool csra66x0_readable_registers(struct device *dev, unsigned int reg)
 {
-	if ((reg >= CSRA66X0_AUDIO_IF_RX_CONFIG1)
-			&& (reg <= CSRA66X0_MAX_REGISTER_ADDR))
+	if (csra66x0_addr_is_in_range(reg, CSRA66X0_BASE,
+		CSRA66X0_MAX_REGISTER_ADDR)
+		|| csra66x0_addr_is_in_range(reg, CSRA66X0_COEFF_BASE,
+		CSRA66X0_MAX_COEFF_ADDR))
 		return true;
-
-	return false;
+	else
+		return false;
 }
 
 /* codec private data */
@@ -263,6 +321,10 @@ struct csra66x0_priv {
 	u32 irq_active_low;
 	u32 in_cluster;
 	u32 is_master;
+	bool is_probed;
+	u32 max_num_cluster_devices;
+	u32 num_cluster_devices;
+	u32 sysfs_reg_addr;
 #if IS_ENABLED(CONFIG_DEBUG_FS)
 	struct dentry *debugfs_dir;
 	struct dentry *debugfs_file_wo;
@@ -284,14 +346,7 @@ struct csra66x0_cluster_device csra_clust_dev_tbl[] = {
 	{NULL, "CSRA_BC"}
 };
 
-#if IS_ENABLED(CONFIG_DEBUG_FS)
-static int debugfs_codec_open_op(struct inode *inode, struct file *file)
-{
-	file->private_data = inode->i_private;
-	return 0;
-}
-
-static int debugfs_get_parameters(char *buf, u32 *param1, int num_of_par)
+static int sysfs_get_param(char *buf, u32 *param, int num_of_par)
 {
 	char *token;
 	int base, cnt;
@@ -304,7 +359,7 @@ static int debugfs_get_parameters(char *buf, u32 *param1, int num_of_par)
 			else
 				base = 10;
 
-			if (kstrtou32(token, base, &param1[cnt]) != 0)
+			if (kstrtou32(token, base, &param[cnt]) != 0)
 				return -EINVAL;
 
 			token = strsep(&buf, " ");
@@ -312,6 +367,13 @@ static int debugfs_get_parameters(char *buf, u32 *param1, int num_of_par)
 			return -EINVAL;
 		}
 	}
+	return 0;
+}
+
+#if IS_ENABLED(CONFIG_DEBUG_FS)
+static int debugfs_codec_open_op(struct inode *inode, struct file *file)
+{
+	file->private_data = inode->i_private;
 	return 0;
 }
 
@@ -325,7 +387,7 @@ static ssize_t debugfs_codec_write_op(struct file *filp,
 	int rc;
 	u32 param[2];
 
-	if (!filp || !ppos || !ubuf)
+	if (!filp || !ppos || !ubuf || !codec)
 		return -EINVAL;
 	if (cnt > sizeof(lbuf) - 1)
 		return -EINVAL;
@@ -333,9 +395,12 @@ static ssize_t debugfs_codec_write_op(struct file *filp,
 	if (rc)
 		return -EFAULT;
 	lbuf[cnt] = '\0';
-	rc = debugfs_get_parameters(lbuf, param, 2);
-	if ((param[0] < CSRA66X0_AUDIO_IF_RX_CONFIG1)
-		|| (param[0] > CSRA66X0_MAX_REGISTER_ADDR)) {
+	rc = sysfs_get_param(lbuf, param, 2);
+
+	if (!(csra66x0_addr_is_in_range(param[0],
+		CSRA66X0_BASE, CSRA66X0_MAX_REGISTER_ADDR)
+		|| csra66x0_addr_is_in_range(param[0],
+		CSRA66X0_COEFF_BASE, CSRA66X0_MAX_COEFF_ADDR))) {
 		dev_err(codec->dev, "%s: register address 0x%04X out of range\n",
 			__func__, param[0]);
 		return -EINVAL;
@@ -358,18 +423,30 @@ static ssize_t debugfs_codec_write_op(struct file *filp,
 	return rc;
 }
 
-static ssize_t debugfs_csra66x0_reg_show(struct snd_soc_codec *codec,
+static ssize_t debugfs_csra66x0_reg_show(struct csra66x0_priv *csra66x0,
 		char __user *ubuf, size_t count, loff_t *ppos)
 {
 	int i, reg_val, len;
+	int addr_min, addr_max;
 	ssize_t total = 0;
 	char tmp_buf[20];
+	struct snd_soc_codec *codec = csra66x0->codec;
 
 	if (!ubuf || !ppos || !codec || *ppos < 0)
 		return -EINVAL;
 
-	for (i = ((int) *ppos + CSRA66X0_BASE);
-		i <= CSRA66X0_MAX_REGISTER_ADDR; i++) {
+	if (csra66x0_addr_is_in_range(csra66x0->sysfs_reg_addr,
+		CSRA66X0_COEFF_BASE, CSRA66X0_MAX_COEFF_ADDR)) {
+		addr_min = CSRA66X0_COEFF_BASE;
+		addr_max = CSRA66X0_MAX_COEFF_ADDR;
+		csra66x0->sysfs_reg_addr = CSRA66X0_BASE;
+	} else {
+		addr_min = CSRA66X0_BASE;
+		addr_max = CSRA66X0_MAX_REGISTER_ADDR;
+	}
+
+	for (i = ((int) *ppos + addr_min);
+		i <= addr_max; i++) {
 		reg_val = snd_soc_read(codec, i);
 		len = snprintf(tmp_buf, 20, "0x%04X: 0x%02X\n", i, (reg_val & 0xFF));
 		if ((total + len) >= count - 1)
@@ -392,12 +469,11 @@ static ssize_t debugfs_codec_read_op(struct file *filp,
 {
 	struct csra66x0_priv *csra66x0 =
 		(struct csra66x0_priv *) filp->private_data;
-	struct snd_soc_codec *codec = csra66x0->codec;
 	ssize_t ret_cnt;
 
 	if (!filp || !ppos || !ubuf || *ppos < 0)
 		return -EINVAL;
-	ret_cnt = debugfs_csra66x0_reg_show(codec, ubuf, cnt, ppos);
+	ret_cnt = debugfs_csra66x0_reg_show(csra66x0, ubuf, cnt, ppos);
 	return ret_cnt;
 }
 
@@ -517,11 +593,8 @@ static const struct snd_soc_dapm_widget csra66x0_dapm_widgets[] = {
 	SND_SOC_DAPM_MIXER("MIXER", SND_SOC_NOPM, 0, 0,
 			csra_mix_switch, ARRAY_SIZE(csra_mix_switch)),
 	SND_SOC_DAPM_DAC("DAC", NULL, SND_SOC_NOPM, 0, 0),
-	SND_SOC_DAPM_PGA("PGA", CSRA66X0_CHIP_STATE_CTRL_FA, 0, 0, NULL, 0),
+	SND_SOC_DAPM_PGA("PGA", SND_SOC_NOPM, 0, 0, NULL, 0),
 	SND_SOC_DAPM_OUTPUT("SPKR"),
-
-	SND_SOC_DAPM_SUPPLY("POWER", CSRA66X0_CHIP_STATE_CTRL_FA,
-			1, 1, NULL, 0),
 };
 
 static const struct snd_soc_dapm_route csra66x0_dapm_routes[] = {
@@ -529,19 +602,132 @@ static const struct snd_soc_dapm_route csra66x0_dapm_routes[] = {
 	{"DAC", NULL, "MIXER"},
 	{"PGA", NULL, "DAC"},
 	{"SPKR", NULL, "PGA"},
-	{"SPKR", NULL, "POWER"},
 };
+
+static int csra66x0_wait_for_config_state(struct snd_soc_codec *codec)
+{
+	u16 val;
+	int cntdwn = WAIT_FOR_CONFIG_STATE_TIMEOUT_MS;
+
+	do {
+		/* wait >= 100ms to check if HW has moved to config state */
+		msleep(100);
+		val = snd_soc_read(codec, CSRA66X0_CHIP_STATE_STATUS_FA);
+		if (val == CONFIG_STATE_ID)
+			break;
+
+		cntdwn = cntdwn - 100;
+	} while (cntdwn > 0);
+	if (cntdwn <= 0)
+		return -EFAULT;
+
+	return 0;
+}
+
+static int csra66x0_allow_run(struct csra66x0_priv *csra66x0)
+{
+	struct snd_soc_codec  *codec = csra66x0->codec;
+	int i;
+
+	/* csra66x0 is not in cluster */
+	if (!csra66x0->in_cluster) {
+		/* enable interrupts */
+		if (csra66x0->irq) {
+			snd_soc_write(codec, CSRA66X0_PIO0_SELECT, 0x1);
+			if (csra66x0->irq_active_low)
+				snd_soc_write(codec,
+					CSRA66X0_IRQ_OUTPUT_POLARITY, 0x0);
+			else
+				snd_soc_write(codec,
+					CSRA66X0_IRQ_OUTPUT_POLARITY, 0x1);
+
+			snd_soc_write(codec, CSRA66X0_IRQ_OUTPUT_ENABLE, 0x01);
+		} else {
+			snd_soc_write(codec, CSRA66X0_IRQ_OUTPUT_ENABLE, 0x00);
+		}
+		/* allow run */
+		snd_soc_write(codec,
+			CSRA66X0_CHIP_STATE_CTRL_FA, SET_RUN_STATE);
+		return 0;
+	}
+
+	/* csra66x0 is part of cluster */
+	/* get number of probed cluster devices */
+	csra66x0->num_cluster_devices = 0;
+	for (i = 0; i < codec->component.card->num_aux_devs; i++) {
+		if (i >= csra66x0->max_num_cluster_devices)
+			break;
+		if (csra_clust_dev_tbl[i].csra66x0_ptr == NULL)
+			continue;
+		if (csra_clust_dev_tbl[i].csra66x0_ptr->is_probed)
+			csra66x0->num_cluster_devices++;
+	}
+
+	/* check if all cluster devices are probed */
+	if (csra66x0->num_cluster_devices
+		== codec->component.card->num_aux_devs) {
+		/* allow run of all slave codecs */
+		for (i = 0; i < codec->component.card->num_aux_devs; i++) {
+			if (i >= csra66x0->max_num_cluster_devices)
+				break;
+			if (csra_clust_dev_tbl[i].csra66x0_ptr == NULL)
+				continue;
+			if (csra_clust_dev_tbl[i].csra66x0_ptr->is_master)
+				continue;
+			snd_soc_write(csra_clust_dev_tbl[i].csra66x0_ptr->codec,
+				CSRA66X0_CHIP_STATE_CTRL_FA, SET_RUN_STATE);
+		}
+		/* allow run of all master codecs */
+		for (i = 0; i < codec->component.card->num_aux_devs; i++) {
+			if (i >= csra66x0->max_num_cluster_devices)
+				break;
+			if (csra_clust_dev_tbl[i].csra66x0_ptr == NULL)
+				continue;
+			if (!csra_clust_dev_tbl[i].csra66x0_ptr->is_master)
+				continue;
+
+			/* enable interrupts */
+			if (csra66x0->irq) {
+				snd_soc_write(codec, CSRA66X0_PIO0_SELECT, 0x1);
+				if (csra66x0->irq_active_low)
+					snd_soc_write(codec,
+						CSRA66X0_IRQ_OUTPUT_POLARITY,
+						0x0);
+				else
+					snd_soc_write(codec,
+						CSRA66X0_IRQ_OUTPUT_POLARITY,
+						0x1);
+
+				snd_soc_write(codec,
+					CSRA66X0_IRQ_OUTPUT_ENABLE, 0x01);
+			} else {
+				snd_soc_write(codec,
+					CSRA66X0_IRQ_OUTPUT_ENABLE, 0x00);
+			}
+			/* allow run */
+			snd_soc_write(csra_clust_dev_tbl[i].csra66x0_ptr->codec,
+				CSRA66X0_CHIP_STATE_CTRL_FA, SET_RUN_STATE);
+		}
+	}
+	return 0;
+}
 
 static int csra66x0_init(struct csra66x0_priv *csra66x0)
 {
 	struct snd_soc_codec  *codec = csra66x0->codec;
+	int ret;
 
 	dev_dbg(codec->dev, "%s: initialize %s\n",
 		__func__, codec->component.name);
+	csra66x0->sysfs_reg_addr = CSRA66X0_BASE;
 	/* config */
-	snd_soc_write(codec, CSRA66X0_CHIP_STATE_CTRL_FA, CONFIG_STATE);
-	/* settle time in HW is min. 500ms before proceeding */
-	msleep(500);
+	snd_soc_write(codec, CSRA66X0_CHIP_STATE_CTRL_FA, SET_CONFIG_STATE);
+	/* wait until HW is in config state before proceeding */
+	ret = csra66x0_wait_for_config_state(codec);
+	if (ret) {
+		dev_err(codec->dev, "%s: timeout while %s is waiting for config state\n",
+			__func__, codec->component.name);
+	}
 
 	/* setup */
 	snd_soc_write(codec, CSRA66X0_MISC_CONTROL_STATUS_0, 0x09);
@@ -569,19 +755,7 @@ static int csra66x0_init(struct csra66x0_priv *csra66x0)
 	snd_soc_write(codec, CSRA66X0_DCA_ATTACK_RATE, 0x00);
 	snd_soc_write(codec, CSRA66X0_DCA_RELEASE_RATE, 0x00);
 
-	if (csra66x0->irq) {
-		snd_soc_write(codec, CSRA66X0_PIO0_SELECT, 0x1);
-		if (csra66x0->irq_active_low)
-			snd_soc_write(codec, CSRA66X0_IRQ_OUTPUT_POLARITY, 0x0);
-		else
-			snd_soc_write(codec, CSRA66X0_IRQ_OUTPUT_POLARITY, 0x1);
-
-		snd_soc_write(codec, CSRA66X0_IRQ_OUTPUT_ENABLE, 0x01);
-	} else {
-		snd_soc_write(codec, CSRA66X0_IRQ_OUTPUT_ENABLE, 0x00);
-	}
-	/* settle time in HW is min. 500ms before slave initializing */
-	msleep(500);
+	csra66x0_allow_run(csra66x0);
 	return 0;
 }
 
@@ -626,14 +800,19 @@ static int csra66x0_reset(struct csra66x0_priv *csra66x0)
 static int csra66x0_msconfig(struct csra66x0_priv *csra66x0)
 {
 	struct snd_soc_codec  *codec = csra66x0->codec;
+	int ret;
 
 	dev_dbg(codec->dev, "%s: configure %s\n",
 		__func__, codec->component.name);
 	/* config */
-	snd_soc_write(codec, CSRA66X0_CHIP_STATE_CTRL_FA,
-		CONFIG_STATE);
-	/* settle time in HW is min. 500ms before proceeding */
-	msleep(500);
+	snd_soc_write(codec, CSRA66X0_CHIP_STATE_CTRL_FA, SET_CONFIG_STATE);
+	/* wait until HW is in config state before proceeding */
+	ret = csra66x0_wait_for_config_state(codec);
+	if (ret) {
+		dev_err(codec->dev, "%s: timeout while %s is waiting for config state\n",
+			__func__, codec->component.name);
+		return ret;
+	}
 	snd_soc_write(codec, CSRA66X0_PIO7_SELECT, 0x04);
 	snd_soc_write(codec, CSRA66X0_PIO8_SELECT, 0x04);
 	if (csra66x0->is_master) {
@@ -656,7 +835,7 @@ static int csra66x0_soc_probe(struct snd_soc_codec *codec)
 	struct csra66x0_priv *csra66x0 = snd_soc_codec_get_drvdata(codec);
 	struct snd_soc_dapm_context *dapm;
 	char name[50];
-	unsigned int i, max_num_cluster_devices;
+	unsigned int i;
 
 	csra66x0->codec = codec;
 	if (csra66x0->in_cluster) {
@@ -666,17 +845,19 @@ static int csra66x0_soc_probe(struct snd_soc_codec *codec)
 			codec->component.name);
 
 		/* add device to cluster table */
-		max_num_cluster_devices = sizeof(csra_clust_dev_tbl)/
-			sizeof(csra_clust_dev_tbl[0]);
-		for (i = 0; i < max_num_cluster_devices; i++) {
+		csra66x0->max_num_cluster_devices =
+			ARRAY_SIZE(csra_clust_dev_tbl);
+		for (i = 0; i < csra66x0->max_num_cluster_devices; i++) {
 			if (!strncmp(codec->component.name_prefix,
-				  csra_clust_dev_tbl[i].csra66x0_prefix,
-				  strlen(
-				  csra_clust_dev_tbl[i].csra66x0_prefix))) {
+				csra_clust_dev_tbl[i].csra66x0_prefix,
+				strnlen(
+				csra_clust_dev_tbl[i].csra66x0_prefix,
+				sizeof(
+				csra_clust_dev_tbl[i].csra66x0_prefix)))) {
 				csra_clust_dev_tbl[i].csra66x0_ptr = csra66x0;
 				break;
 			}
-			if (i == max_num_cluster_devices-1)
+			if (i == csra66x0->max_num_cluster_devices - 1)
 				dev_warn(codec->dev,
 					"%s: Unknown prefix %s of cluster device %s\n",
 					__func__, codec->component.name_prefix,
@@ -698,31 +879,14 @@ static int csra66x0_soc_probe(struct snd_soc_codec *codec)
 	}
 
 	/* common initialization */
+	csra66x0->is_probed = 1;
 	csra66x0_init(csra66x0);
 	return 0;
 }
 
 static int csra66x0_soc_remove(struct snd_soc_codec *codec)
 {
-	snd_soc_write(codec, CSRA66X0_CHIP_STATE_CTRL_FA, STDBY_STATE);
-	return 0;
-}
-
-static int csra66x0_soc_suspend(struct snd_soc_codec *codec)
-{
-	u16 state_reg = snd_soc_read(codec, CSRA66X0_CHIP_STATE_CTRL_FA) & 0xFC;
-
-	snd_soc_write(codec, CSRA66X0_CHIP_STATE_CTRL_FA, state_reg |
-			STDBY_STATE);
-	return 0;
-}
-
-static int csra66x0_soc_resume(struct snd_soc_codec *codec)
-{
-	u16 state_reg = snd_soc_read(codec, CSRA66X0_CHIP_STATE_CTRL_FA) & 0xFC;
-
-	snd_soc_write(codec, CSRA66X0_CHIP_STATE_CTRL_FA, state_reg |
-			RUN_STATE);
+	snd_soc_write(codec, CSRA66X0_CHIP_STATE_CTRL_FA, SET_STDBY_STATE);
 	return 0;
 }
 
@@ -738,8 +902,6 @@ static struct regmap *csra66x0_get_regmap(struct device *dev)
 static struct snd_soc_codec_driver soc_codec_drv_csra66x0 = {
 	.probe  = csra66x0_soc_probe,
 	.remove = csra66x0_soc_remove,
-	.suspend = csra66x0_soc_suspend,
-	.resume = csra66x0_soc_resume,
 	.get_regmap = csra66x0_get_regmap,
 	.component_driver = {
 		.controls = csra66x0_snd_controls,
@@ -757,7 +919,7 @@ static struct regmap_config csra66x0_regmap_config = {
 	.cache_type = REGCACHE_RBTREE,
 	.reg_defaults = csra66x0_reg_defaults,
 	.num_reg_defaults = ARRAY_SIZE(csra66x0_reg_defaults),
-	.max_register = CSRA66X0_MAX_REGISTER_ADDR,
+	.max_register = CSRA66X0_MAX_COEFF_ADDR,
 	.volatile_reg = csra66x0_volatile_register,
 	.writeable_reg = csra66x0_writeable_registers,
 	.readable_reg = csra66x0_readable_registers,
@@ -768,7 +930,7 @@ static irqreturn_t csra66x0_irq(int irq, void *data)
 	struct csra66x0_priv *csra66x0 = (struct csra66x0_priv *) data;
 	struct snd_soc_codec  *codec = csra66x0->codec;
 	u16    val;
-	unsigned int i, max_num_cluster_devices;
+	unsigned int i;
 
 	/* Treat interrupt before codec is initialized as spurious */
 	if (codec == NULL)
@@ -784,11 +946,8 @@ static irqreturn_t csra66x0_irq(int irq, void *data)
 
 	if (csra66x0->in_cluster) {
 		/* reset all slave codecs */
-		max_num_cluster_devices =
-			sizeof(csra_clust_dev_tbl) /
-			sizeof(csra_clust_dev_tbl[0]);
-		for (i = 0; i < max_num_cluster_devices; i++) {
-			if (i >= codec->component.card->num_aux_devs)
+		for (i = 0; i < codec->component.card->num_aux_devs; i++) {
+			if (i >= csra66x0->max_num_cluster_devices)
 				break;
 			if (csra_clust_dev_tbl[i].csra66x0_ptr == NULL)
 				continue;
@@ -797,8 +956,8 @@ static irqreturn_t csra66x0_irq(int irq, void *data)
 			csra66x0_reset(csra_clust_dev_tbl[i].csra66x0_ptr);
 		}
 		/* reset all master codecs */
-		for (i = 0; i < max_num_cluster_devices; i++) {
-			if (i >= codec->component.card->num_aux_devs)
+		for (i = 0; i < codec->component.card->num_aux_devs; i++) {
+			if (i >= csra66x0->max_num_cluster_devices)
 				break;
 			if (csra_clust_dev_tbl[i].csra66x0_ptr == NULL)
 				continue;
@@ -807,8 +966,8 @@ static irqreturn_t csra66x0_irq(int irq, void *data)
 					csra_clust_dev_tbl[i].csra66x0_ptr);
 		}
 		/* recover all codecs */
-		for (i = 0; i < max_num_cluster_devices; i++) {
-			if (i >= codec->component.card->num_aux_devs)
+		for (i = 0; i < codec->component.card->num_aux_devs; i++) {
+			if (i >= csra66x0->max_num_cluster_devices)
 				break;
 			if (csra_clust_dev_tbl[i].csra66x0_ptr == NULL)
 				continue;
@@ -828,13 +987,275 @@ static const struct of_device_id csra66x0_of_match[] = {
 };
 MODULE_DEVICE_TABLE(of, csra66x0_of_match);
 
+static ssize_t csra66x0_sysfs_write2reg_addr_value(struct device *dev,
+	struct device_attribute *attr, const char *buf, size_t count)
+{
+	int ret;
+	u32 param[2]; /*reg_addr, reg_value */
+	char lbuf[CSRA66X0_SYSFS_ENTRY_MAX_LEN];
+	struct csra66x0_priv *csra66x0 = dev_get_drvdata(dev);
+	struct snd_soc_codec *codec = csra66x0->codec;
+
+	if (!csra66x0) {
+		dev_err(codec->dev, "%s: invalid input\n", __func__);
+		return -EINVAL;
+	}
+
+	if (count > sizeof(lbuf) - 1)
+		return -EINVAL;
+
+	ret = strlcpy(lbuf, buf, count);
+	if (ret != count) {
+		dev_err(codec->dev, "%s: copy input from user space failed. ret=%d\n",
+			__func__, ret);
+		ret = -EFAULT;
+		goto end;
+	}
+
+	lbuf[count] = '\0';
+	ret = sysfs_get_param(lbuf, param, 2);
+	if (ret) {
+		dev_err(codec->dev, "%s: get sysfs parameter failed. ret=%d\n",
+			__func__, ret);
+		goto end;
+	}
+
+	if (!(csra66x0_addr_is_in_range(param[0],
+		CSRA66X0_BASE, CSRA66X0_MAX_REGISTER_ADDR)
+		|| csra66x0_addr_is_in_range(param[0],
+		CSRA66X0_COEFF_BASE, CSRA66X0_MAX_COEFF_ADDR))) {
+		dev_err(codec->dev, "%s: register address 0x%04X out of range\n",
+			__func__, param[0]);
+		ret = -EINVAL;
+		goto end;
+	}
+
+	if ((param[1] < 0) || (param[1] > 255)) {
+		dev_err(codec->dev, "%s: register data 0x%02X out of range\n",
+			__func__, param[1]);
+		ret = -EINVAL;
+		goto end;
+	}
+
+	snd_soc_write(codec, param[0], param[1]);
+	ret = count;
+
+end:
+	return ret;
+}
+
+static ssize_t csra66x0_sysfs_read2reg_addr_set(struct device *dev,
+	struct device_attribute *attr, const char *buf, size_t count)
+{
+	int ret;
+	u32 reg_addr;
+	char lbuf[CSRA66X0_SYSFS_ENTRY_MAX_LEN];
+	struct csra66x0_priv *csra66x0 = dev_get_drvdata(dev);
+
+	if (!csra66x0) {
+		dev_err(dev, "%s: invalid input\n", __func__);
+		return -EINVAL;
+	}
+
+	if (count > sizeof(lbuf) - 1)
+		return -EINVAL;
+
+	ret = strlcpy(lbuf, buf, count);
+	if (ret != count) {
+		dev_err(dev, "%s: copy input from user space failed. ret=%d\n",
+			__func__, ret);
+		ret = -EFAULT;
+		goto end;
+	}
+
+	lbuf[count] = '\0';
+	ret = sysfs_get_param(lbuf, &reg_addr, 1);
+	if (ret) {
+		dev_err(dev, "%s: get sysfs parameter failed. ret=%d\n",
+			__func__, ret);
+		goto end;
+	}
+
+	if (!(csra66x0_addr_is_in_range(reg_addr,
+		CSRA66X0_BASE, CSRA66X0_MAX_REGISTER_ADDR)
+		|| csra66x0_addr_is_in_range(reg_addr,
+		CSRA66X0_COEFF_BASE, CSRA66X0_MAX_COEFF_ADDR))) {
+		dev_err(dev, "%s: register address 0x%04X out of range\n",
+			__func__, reg_addr);
+		ret = -EINVAL;
+		goto end;
+	}
+
+	csra66x0->sysfs_reg_addr = reg_addr;
+	ret = count;
+
+end:
+	return ret;
+}
+
+static ssize_t csra66x0_sysfs_read2reg_addr_get(struct device *dev,
+	struct device_attribute *attr, char *buf)
+{
+	int ret;
+	u32 reg_addr;
+	struct csra66x0_priv *csra66x0 = dev_get_drvdata(dev);
+
+	if (!csra66x0) {
+		dev_err(dev, "%s: invalid input\n", __func__);
+		return -EINVAL;
+	}
+
+	reg_addr = csra66x0->sysfs_reg_addr;
+
+	ret = snprintf(buf, CSRA66X0_SYSFS_ENTRY_MAX_LEN,
+		"0x%04X\n", reg_addr);
+	pr_debug("%s: 0x%04X\n", __func__, reg_addr);
+
+	return ret;
+}
+
+static ssize_t csra66x0_sysfs_read2reg_value(struct device *dev,
+	struct device_attribute *attr, char *buf)
+{
+	int ret;
+	u32 reg_val, reg_addr;
+	struct csra66x0_priv *csra66x0 = dev_get_drvdata(dev);
+	struct snd_soc_codec *codec = csra66x0->codec;
+
+	if (!csra66x0) {
+		dev_err(dev, "%s: invalid input\n", __func__);
+		return -EINVAL;
+	}
+
+	reg_addr = csra66x0->sysfs_reg_addr;
+	if (!(csra66x0_addr_is_in_range(reg_addr,
+		CSRA66X0_BASE, CSRA66X0_MAX_REGISTER_ADDR)
+		|| csra66x0_addr_is_in_range(reg_addr,
+		CSRA66X0_COEFF_BASE, CSRA66X0_MAX_COEFF_ADDR))) {
+		pr_debug("%s: 0x%04X: register address out of range\n",
+			__func__, reg_addr);
+		ret = snprintf(buf, CSRA66X0_SYSFS_ENTRY_MAX_LEN,
+			"0x%04X: register address out of range\n", reg_addr);
+		goto end;
+	}
+
+	reg_val = snd_soc_read(codec, csra66x0->sysfs_reg_addr);
+	ret = snprintf(buf, CSRA66X0_SYSFS_ENTRY_MAX_LEN,
+		"0x%04X:	0x%02X\n", csra66x0->sysfs_reg_addr, reg_val);
+	pr_debug("%s: 0x%04X: 0x%02X\n", __func__,
+		csra66x0->sysfs_reg_addr, reg_val);
+
+end:
+	return ret;
+}
+
+static ssize_t csra66x0_sysfs_reset(struct device *dev,
+	struct device_attribute *attr, const char *buf, size_t count)
+{
+	int val, rc;
+	struct csra66x0_priv *csra66x0 = dev_get_drvdata(dev);
+	struct snd_soc_codec  *codec = csra66x0->codec;
+	unsigned int i;
+
+	if (!csra66x0) {
+		dev_err(dev, "%s: invalid input\n", __func__);
+		return -EINVAL;
+	}
+	rc = kstrtoint(buf, 10, &val);
+	if (rc) {
+		dev_err(dev, "%s: kstrtoint failed. rc=%d\n", __func__, rc);
+		goto end;
+	}
+	if (val != SYSFS_RESET) {
+		dev_err(dev, "%s: value out of range.\n", __func__);
+		rc = -EINVAL;
+		goto end;
+	}
+
+	pr_debug("%s: reset device\n", __func__);
+	if (csra66x0->in_cluster) {
+		/* reset all slave codecs */
+		for (i = 0; i < codec->component.card->num_aux_devs; i++) {
+			if (i >= csra66x0->max_num_cluster_devices)
+				break;
+			if (csra_clust_dev_tbl[i].csra66x0_ptr == NULL)
+				continue;
+			if (csra_clust_dev_tbl[i].csra66x0_ptr->is_master)
+				continue;
+			csra66x0_reset(csra_clust_dev_tbl[i].csra66x0_ptr);
+		}
+		/* reset all master codecs */
+		for (i = 0; i < codec->component.card->num_aux_devs; i++) {
+			if (i >= csra66x0->max_num_cluster_devices)
+				break;
+			if (csra_clust_dev_tbl[i].csra66x0_ptr == NULL)
+				continue;
+			if (csra_clust_dev_tbl[i].csra66x0_ptr->is_master)
+				csra66x0_reset(
+					csra_clust_dev_tbl[i].csra66x0_ptr);
+		}
+		/* recover all codecs */
+		for (i = 0; i < codec->component.card->num_aux_devs; i++) {
+			if (i >= csra66x0->max_num_cluster_devices)
+				break;
+			if (csra_clust_dev_tbl[i].csra66x0_ptr == NULL)
+				continue;
+			csra66x0_msconfig(csra_clust_dev_tbl[i].csra66x0_ptr);
+			csra66x0_init(csra_clust_dev_tbl[i].csra66x0_ptr);
+		}
+	} else {
+		csra66x0_reset(csra66x0);
+		csra66x0_init(csra66x0);
+	}
+
+	rc = strnlen(buf, CSRA66X0_SYSFS_ENTRY_MAX_LEN);
+end:
+	return rc;
+}
+
+static DEVICE_ATTR(write2reg_addr_value, 0200, NULL,
+	csra66x0_sysfs_write2reg_addr_value);
+static DEVICE_ATTR(read2reg_addr, 0644, csra66x0_sysfs_read2reg_addr_get,
+	csra66x0_sysfs_read2reg_addr_set);
+static DEVICE_ATTR(read2reg_value, 0444, csra66x0_sysfs_read2reg_value, NULL);
+static DEVICE_ATTR(reset, 0200, NULL, csra66x0_sysfs_reset);
+
+static struct attribute *csra66x0_fs_attrs[] = {
+	&dev_attr_write2reg_addr_value.attr,
+	&dev_attr_read2reg_addr.attr,
+	&dev_attr_read2reg_value.attr,
+	&dev_attr_reset.attr,
+	NULL,
+};
+
+static struct attribute_group csra66x0_fs_attrs_group = {
+	.attrs = csra66x0_fs_attrs,
+};
+
+static int csra66x0_sysfs_create(struct i2c_client *client,
+	struct csra66x0_priv *csra66x0)
+{
+	int rc;
+
+	rc = sysfs_create_group(&client->dev.kobj, &csra66x0_fs_attrs_group);
+	return rc;
+}
+
+static void csra66x0_sysfs_remove(struct i2c_client *client,
+	struct csra66x0_priv *csra66x0)
+{
+	sysfs_remove_group(&client->dev.kobj, &csra66x0_fs_attrs_group);
+}
+
 #if IS_ENABLED(CONFIG_I2C)
 static int csra66x0_i2c_probe(struct i2c_client *client_i2c,
 			const struct i2c_device_id *id)
 {
 	struct csra66x0_priv *csra66x0;
 	int ret, irq_trigger;
+#if IS_ENABLED(CONFIG_DEBUG_FS)
 	char debugfs_dir_name[32];
+#endif
 
 	csra66x0 = devm_kzalloc(&client_i2c->dev, sizeof(struct csra66x0_priv),
 			GFP_KERNEL);
@@ -941,7 +1362,8 @@ static int csra66x0_i2c_probe(struct i2c_client *client_i2c,
 		dev_dbg(&client_i2c->dev,
 			"%s: Failed to create /sys/kernel/debug/%s for debugfs\n",
 			__func__, debugfs_dir_name);
-		return -ENOMEM;
+		ret = -ENOMEM;
+		goto err_debugfs;
 	}
 	csra66x0->debugfs_file_wo = debugfs_create_file(
 		"write_reg_val", S_IFREG | S_IRUGO, csra66x0->debugfs_dir,
@@ -951,7 +1373,8 @@ static int csra66x0_i2c_probe(struct i2c_client *client_i2c,
 		dev_dbg(&client_i2c->dev,
 			"%s: Failed to create /sys/kernel/debug/%s/write_reg_val\n",
 			__func__, debugfs_dir_name);
-		return -ENOMEM;
+		ret = -ENOMEM;
+		goto err_debugfs;
 	}
 	csra66x0->debugfs_file_ro = debugfs_create_file(
 		"show_reg_dump", S_IFREG | S_IRUGO, csra66x0->debugfs_dir,
@@ -961,7 +1384,8 @@ static int csra66x0_i2c_probe(struct i2c_client *client_i2c,
 		dev_dbg(&client_i2c->dev,
 			"%s: Failed to create /sys/kernel/debug/%s/show_reg_dump\n",
 			__func__, debugfs_dir_name);
-		return -ENOMEM;
+		ret = -ENOMEM;
+		goto err_debugfs;
 	}
 #endif /* CONFIG_DEBUG_FS */
 
@@ -977,12 +1401,30 @@ static int csra66x0_i2c_probe(struct i2c_client *client_i2c,
 		}
 		return ret;
 	}
+
+	ret = csra66x0_sysfs_create(client_i2c, csra66x0);
+	if (ret) {
+		dev_err(&client_i2c->dev, "%s: sysfs creation failed ret=%d\n",
+			__func__, ret);
+		goto err_sysfs;
+	}
+
 	return 0;
+
+err_sysfs:
+	snd_soc_unregister_codec(&client_i2c->dev);
+	return ret;
+
+#if IS_ENABLED(CONFIG_DEBUG_FS)
+err_debugfs:
+	debugfs_remove_recursive(csra66x0->debugfs_dir);
+	return ret;
+#endif
 }
 
-static int csra66x0_i2c_remove(struct i2c_client *i2c_client)
+static int csra66x0_i2c_remove(struct i2c_client *client_i2c)
 {
-	struct csra66x0_priv *csra66x0 = i2c_get_clientdata(i2c_client);
+	struct csra66x0_priv *csra66x0 = i2c_get_clientdata(client_i2c);
 
 	if (csra66x0) {
 		if (gpio_is_valid(csra66x0->vreg_gpio)) {
@@ -993,7 +1435,10 @@ static int csra66x0_i2c_remove(struct i2c_client *i2c_client)
 		debugfs_remove_recursive(csra66x0->debugfs_dir);
 #endif
 	}
-	snd_soc_unregister_codec(&i2c_client->dev);
+
+	csra66x0_sysfs_remove(client_i2c, csra66x0);
+	snd_soc_unregister_codec(&client_i2c->dev);
+
 	return 0;
 }
 
