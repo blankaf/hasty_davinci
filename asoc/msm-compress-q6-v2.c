@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2018, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2012-2019, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -53,6 +53,8 @@
 #define AAC_OUTPUT_FRAME_SZ		1024
 #define AC3_OUTPUT_FRAME_SZ		1536
 #define EAC3_OUTPUT_FRAME_SZ		1536
+#define MAT_OUTPUT_FRAME_SZ		512
+#define THD_OUTPUT_FRAME_SZ		512
 #define DSP_NUM_OUTPUT_FRAME_BUFFERED	2
 #define FLAC_BLK_SIZE_LIMIT		65535
 
@@ -63,6 +65,7 @@
 /* decoder parameter length */
 #define DDP_DEC_MAX_NUM_PARAM		18
 
+#define THD_DEC_MAX_NUM_PARAMS 8
 /* Default values used if user space does not set */
 #define COMPR_PLAYBACK_MIN_FRAGMENT_SIZE (8 * 1024)
 #define COMPR_PLAYBACK_MAX_FRAGMENT_SIZE (128 * 1024)
@@ -202,6 +205,7 @@ struct msm_compr_audio_effects {
 
 struct msm_compr_dec_params {
 	struct snd_dec_ddp ddp_params;
+	struct snd_dec_thd truehd;
 };
 
 struct msm_compr_ch_map {
@@ -425,6 +429,25 @@ static int msm_compr_send_ddp_cfg(struct audio_client *ac,
 	return 0;
 }
 
+static int msm_compr_send_thd_cfg(struct audio_client *ac,
+				  struct snd_dec_thd *truehd,
+				  int stream_id)
+{
+	int i, rc;
+
+	pr_debug("%s\n", __func__);
+	for (i = 0; i < truehd->params_length; i++) {
+		rc = q6asm_thd_stream_endp_params(ac, truehd->params_id[i],
+						      truehd->params_value[i],
+						      stream_id);
+		if (rc) {
+			pr_err("sending params_id: %d failed\n",
+				truehd->params_id[i]);
+			return rc;
+		}
+	}
+	return 0;
+}
 static int msm_compr_send_buffer(struct msm_compr_audio *prtd)
 {
 	int buffer_length;
@@ -926,7 +949,7 @@ static void populate_codec_list(struct msm_compr_audio *prtd)
 			COMPR_PLAYBACK_MIN_NUM_FRAGMENTS;
 	prtd->compr_cap.max_fragments =
 			COMPR_PLAYBACK_MAX_NUM_FRAGMENTS;
-	prtd->compr_cap.num_codecs = 17;
+	prtd->compr_cap.num_codecs = 18;
 	prtd->compr_cap.codecs[0] = SND_AUDIOCODEC_MP3;
 	prtd->compr_cap.codecs[1] = SND_AUDIOCODEC_AAC;
 	prtd->compr_cap.codecs[2] = SND_AUDIOCODEC_AC3;
@@ -944,6 +967,7 @@ static void populate_codec_list(struct msm_compr_audio *prtd)
 	prtd->compr_cap.codecs[14] = SND_AUDIOCODEC_APTX;
 	prtd->compr_cap.codecs[15] = SND_AUDIOCODEC_TRUEHD;
 	prtd->compr_cap.codecs[16] = SND_AUDIOCODEC_IEC61937;
+	prtd->compr_cap.codecs[17] = SND_AUDIOCODEC_MAT;
 }
 
 static int msm_compr_send_media_format_block(struct snd_compr_stream *cstream,
@@ -1244,6 +1268,10 @@ static int msm_compr_send_media_format_block(struct snd_compr_stream *cstream,
 			pr_err("%s: CMD Format block failed ret %d\n",
 					 __func__, ret);
 		}
+		break;
+	case FORMAT_MAT:
+		pr_debug("SND_AUDIOCODEC_MAT\n");
+		/* no media format block needed */
 		break;
 	default:
 		pr_debug("%s, unsupported format, skip", __func__);
@@ -2096,6 +2124,7 @@ static int msm_compr_set_params(struct snd_compr_stream *cstream,
 	case SND_AUDIOCODEC_TRUEHD: {
 		pr_debug("%s: SND_AUDIOCODEC_TRUEHD\n", __func__);
 		prtd->codec = FORMAT_TRUEHD;
+		frame_sz = THD_OUTPUT_FRAME_SZ;
 		break;
 	}
 
@@ -2114,6 +2143,13 @@ static int msm_compr_set_params(struct snd_compr_stream *cstream,
 	case SND_AUDIOCODEC_BESPOKE: {
 		pr_debug("%s: SND_AUDIOCODEC_BESPOKE\n", __func__);
 		prtd->codec = FORMAT_BESPOKE;
+		break;
+	}
+
+	case SND_AUDIOCODEC_MAT: {
+		pr_debug("%s: SND_AUDIOCODEC_MAT\n", __func__);
+		prtd->codec = FORMAT_MAT;
+		frame_sz = MAT_OUTPUT_FRAME_SZ;
 		break;
 	}
 
@@ -2988,6 +3024,7 @@ static int msm_compr_get_codec_caps(struct snd_compr_stream *cstream,
 	case SND_AUDIOCODEC_TRUEHD:
 	case SND_AUDIOCODEC_IEC61937:
 	case SND_AUDIOCODEC_APTX:
+	case SND_AUDIOCODEC_MAT:
 		break;
 	default:
 		pr_err("%s: Unsupported audio codec %d\n",
@@ -3410,6 +3447,7 @@ static int msm_compr_send_dec_params(struct snd_compr_stream *cstream,
 	int rc = 0;
 	struct msm_compr_audio *prtd = NULL;
 	struct snd_dec_ddp *ddp = &dec_params->ddp_params;
+	struct snd_dec_thd *truehd = &dec_params->truehd;
 
 	if (!cstream || !dec_params) {
 		pr_err("%s: stream or dec_params inactive\n", __func__);
@@ -3425,11 +3463,17 @@ static int msm_compr_send_dec_params(struct snd_compr_stream *cstream,
 	switch (prtd->codec) {
 	case FORMAT_MP3:
 	case FORMAT_MPEG4_AAC:
-	case FORMAT_TRUEHD:
 	case FORMAT_IEC61937:
 	case FORMAT_APTX:
 		pr_debug("%s: no runtime parameters for codec: %d\n", __func__,
 			 prtd->codec);
+		break;
+	case FORMAT_MAT:
+	case FORMAT_TRUEHD:
+		rc = msm_compr_send_thd_cfg(prtd->audio_client, truehd, stream_id);
+		if (rc < 0) {
+			pr_err("%s: Dolby TrueHD CMD CFG failed %d\n", __func__, rc);
+		}
 		break;
 	case FORMAT_AC3:
 	case FORMAT_EAC3:
@@ -3494,7 +3538,6 @@ static int msm_compr_dec_params_put(struct snd_kcontrol *kcontrol,
 	case FORMAT_APE:
 	case FORMAT_DTS:
 	case FORMAT_DSD:
-	case FORMAT_TRUEHD:
 	case FORMAT_IEC61937:
 	case FORMAT_APTX:
 		pr_debug("%s: no runtime parameters for codec: %d\n", __func__,
@@ -3526,6 +3569,37 @@ static int msm_compr_dec_params_put(struct snd_kcontrol *kcontrol,
 		if (prtd && prtd->audio_client)
 			rc = msm_compr_send_dec_params(cstream, dec_params,
 						prtd->audio_client->stream_id);
+		break;
+	}
+	case FORMAT_MAT:
+	case FORMAT_TRUEHD: {
+		struct snd_dec_thd *truehd = &dec_params->truehd;
+		int cnt;
+
+		if (prtd->compr_passthr != LEGACY_PCM) {
+			pr_err("%s: No THD param for compr_type[%d]\n",
+				__func__, prtd->compr_passthr);
+			break;
+		}
+
+		truehd->params_length = (*values++);
+
+		if (truehd->params_length > THD_DEC_MAX_NUM_PARAMS) {
+			pr_err("%s: invalid num of params:: %d\n", __func__,
+				truehd->params_length);
+			rc = -EINVAL;
+			goto end;
+		}
+
+		for (cnt = 0; cnt < truehd->params_length; cnt++) {
+			truehd->params_id[cnt] = *values++;
+			truehd->params_value[cnt] = *values++;
+		}
+		prtd = cstream->runtime->private_data;
+
+		if (prtd && prtd->audio_client)
+			rc = msm_compr_send_dec_params(cstream, dec_params,
+				prtd->audio_client->stream_id);
 		break;
 	}
 	default:

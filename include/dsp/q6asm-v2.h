@@ -58,6 +58,7 @@
 #define FORMAT_TRUEHD       0x0020
 #define FORMAT_IEC61937     0x0021
 #define FORMAT_BESPOKE      0x0022
+#define FORMAT_MAT          0x0023
 
 #define ENCDEC_SBCBITRATE   0x0001
 #define ENCDEC_IMMEDIATE_DECODE 0x0002
@@ -752,4 +753,9 @@ int q6asm_adjust_session_clock(struct audio_client *ac,
 /* Provide default asm channel mapping for given channel count */
 int q6asm_map_channels(u8 *channel_mapping, uint32_t channels,
 		bool use_back_flavor);
+
+/* Set MAT-THD parameters to DSP*/
+int q6asm_thd_stream_endp_params(struct audio_client *ac,
+                                 int param_id, int param_value,
+                                 int stream_id);
 #endif /* __Q6_ASM_H__ */
