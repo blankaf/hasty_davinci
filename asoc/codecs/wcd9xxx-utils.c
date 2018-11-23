@@ -389,6 +389,23 @@ struct wcd9xxx_pdata *wcd9xxx_populate_dt_data(struct device *dev)
 		goto err_parse_dt_prop;
 	}
 
+	if (!(wcd9xxx_read_of_property_u32(dev, "qcom,cdc-ext-clk-rate",
+					   &prop_val))) {
+		if (prop_val % pdata->mclk_rate == 0) {
+			if (prop_val / pdata->mclk_rate == 2) {
+				pdata->mclk_div_by_2 = 1;
+			} else if (prop_val / pdata->mclk_rate != 1) {
+				dev_err(dev, "%s: Invalid ext clk_rate = %u\n",
+					__func__, prop_val);
+				goto err_parse_dt_prop;
+			}
+		} else {
+			dev_err(dev, "%s: Invalid ext clk rate = %u\n",
+				__func__, prop_val);
+			goto err_parse_dt_prop;
+		}
+	}
+
 	if (!(wcd9xxx_read_of_property_u32(dev, "qcom,cdc-dmic-sample-rate",
 					   &prop_val)))
 		dmic_sample_rate = prop_val;

@@ -370,6 +370,8 @@ struct wcd9xxx {
 	struct wcd9xxx_ch *rx_chs;
 	struct wcd9xxx_ch *tx_chs;
 	u32 mclk_rate;
+	bool mclk_div_by_2;
+
 	enum codec_variant type;
 	struct regmap *regmap;
 

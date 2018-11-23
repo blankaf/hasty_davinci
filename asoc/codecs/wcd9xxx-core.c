@@ -1071,6 +1071,7 @@ static int wcd9xxx_i2c_probe(struct i2c_client *client,
 		if (client->dev.of_node)
 			wcd9xxx->mclk_rate = pdata->mclk_rate;
 
+		wcd9xxx->mclk_div_by_2 = !!pdata->mclk_div_by_2;
 		wcd9xxx->num_of_supplies = pdata->num_supplies;
 		ret = msm_cdc_init_supplies(wcd9xxx->dev, &wcd9xxx->supplies,
 					    pdata->regulator,
@@ -1310,6 +1311,7 @@ static int wcd9xxx_slim_probe(struct slim_device *slim)
 	wcd9xxx->reset_gpio = pdata->reset_gpio;
 	wcd9xxx->dev = &slim->dev;
 	wcd9xxx->mclk_rate = pdata->mclk_rate;
+	wcd9xxx->mclk_div_by_2 = !!pdata->mclk_div_by_2;
 	wcd9xxx->dev_up = true;
 	wcd9xxx->wcd_rst_np = pdata->wcd_rst_np;
 

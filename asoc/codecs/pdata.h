@@ -191,6 +191,7 @@ struct wcd9xxx_pdata {
 	struct cdc_regulator *regulator;
 	int num_supplies;
 	u32 mclk_rate;
+	u32 mclk_div_by_2;
 	u32 dmic_sample_rate;
 	u32 mad_dmic_sample_rate;
 	u32 ecpp_dmic_sample_rate;
