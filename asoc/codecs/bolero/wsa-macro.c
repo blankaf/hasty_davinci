@@ -55,6 +55,9 @@
 #define WSA_MACRO_RX_PATH_CFG3_OFFSET 0x10
 #define WSA_MACRO_RX_PATH_DSMDEM_OFFSET 0x4C
 #define WSA_MACRO_FS_RATE_MASK 0x0F
+#define WSA_MACRO_EC_MIX_TX0_MASK 0x03
+#define WSA_MACRO_EC_MIX_TX1_MASK 0x18
+
 
 enum {
 	WSA_MACRO_RX0 = 0,
@@ -724,6 +727,7 @@ static int wsa_macro_get_channel_map(struct snd_soc_dai *dai,
 	struct snd_soc_codec *codec = dai->codec;
 	struct device *wsa_dev = NULL;
 	struct wsa_macro_priv *wsa_priv = NULL;
+	u16 val = 0, mask = 0, cnt = 0;
 
 	if (!wsa_macro_get_data(codec, &wsa_dev, &wsa_priv, __func__))
 		return -EINVAL;
@@ -734,7 +738,6 @@ static int wsa_macro_get_channel_map(struct snd_soc_dai *dai,
 
 	switch (dai->id) {
 	case WSA_MACRO_AIF_VI:
-	case WSA_MACRO_AIF_ECHO:
 		*tx_slot = wsa_priv->active_ch_mask[dai->id];
 		*tx_num = wsa_priv->active_ch_cnt[dai->id];
 		break;
@@ -742,6 +745,20 @@ static int wsa_macro_get_channel_map(struct snd_soc_dai *dai,
 	case WSA_MACRO_AIF_MIX1_PB:
 		*rx_slot = wsa_priv->active_ch_mask[dai->id];
 		*rx_num = wsa_priv->active_ch_cnt[dai->id];
+		break;
+	case WSA_MACRO_AIF_ECHO:
+		val = snd_soc_read(codec,
+			BOLERO_CDC_WSA_RX_INP_MUX_RX_MIX_CFG0);
+		if (val & WSA_MACRO_EC_MIX_TX1_MASK) {
+			mask |= 0x2;
+			cnt++;
+		}
+		if (val & WSA_MACRO_EC_MIX_TX0_MASK) {
+			mask |= 0x1;
+			cnt++;
+		}
+		*tx_slot = mask;
+		*tx_num = cnt;
 		break;
 	default:
 		dev_err(wsa_dev, "%s: Invalid AIF\n", __func__);
@@ -1653,10 +1670,10 @@ static int wsa_macro_enable_echo(struct snd_soc_dapm_widget *w,
 				BOLERO_CDC_WSA_RX_INP_MUX_RX_MIX_CFG0,
 				0x1 << ec_tx, 0x1 << ec_tx);
 		ec_hq_reg = BOLERO_CDC_WSA_EC_HQ0_EC_REF_HQ_PATH_CTL +
-							0x20 * ec_tx;
+							0x40 * ec_tx;
 		snd_soc_update_bits(codec, ec_hq_reg, 0x01, 0x01);
 		ec_hq_reg = BOLERO_CDC_WSA_EC_HQ0_EC_REF_HQ_CFG0 +
-							0x20 * ec_tx;
+							0x40 * ec_tx;
 		/* default set to 48k */
 		snd_soc_update_bits(codec, ec_hq_reg, 0x1E, 0x08);
 	}
