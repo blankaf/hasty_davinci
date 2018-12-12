@@ -26,6 +26,9 @@ endif
 ifeq ($(TARGET_SUPPORT), sdmsteppe))
 KBUILD_OPTIONS += CONFIG_ARCH_SM6150=y
 endif
+ifeq ($(TARGET_SUPPORT),sdxprairie)
+KBUILD_OPTIONS += CONFIG_ARCH_SDXPRAIRIE=y
+endif
 
 obj-m := ipc/
 obj-m += dsp/
@@ -33,7 +36,7 @@ obj-m += dsp/codecs/
 obj-m += soc/
 obj-m += asoc/
 obj-m += asoc/codecs/
-ifeq ($(TARGET_SUPPORT), $(filter $(TARGET_SUPPORT), sdm670 qcs605 sdmsteppe))
+ifeq ($(TARGET_SUPPORT), $(filter $(TARGET_SUPPORT), sdm670 qcs605 sdmsteppe sdxprairie))
 obj-m += asoc/codecs/wcd934x/
 endif
 ifeq ($(TARGET_SUPPORT), $(filter $(TARGET_SUPPORT), apq8053 sdm670 qcs605))
