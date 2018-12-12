@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2018, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2012-2019, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -5400,7 +5400,7 @@ struct asm_softvolume_params {
 #define PCM_CHANNEL_RB   9
 
 /* Top surround channel. */
-#define PCM_CHANNELS   10
+#define PCM_CHANNEL_TS   10
 
 /* Center vertical height channel.*/
 #define PCM_CHANNEL_CVH  11
@@ -5479,6 +5479,9 @@ struct asm_softvolume_params {
 
 /* Right side direct channel. */
 #define PCM_CHANNEL_RSD  34
+
+/* Mark unused channel. */
+#define PCM_CHANNEL_UNUSED  47
 
 #define PCM_FORMAT_MAX_NUM_CHANNEL  8
 #define PCM_FORMAT_MAX_CHANNELS_9   9
@@ -5609,7 +5612,7 @@ struct asm_multi_channel_pcm_fmt_blk_v2 {
  * - #PCM_CHANNEL_CS
  * - #PCM_CHANNEL_LB
  * - #PCM_CHANNEL_RB
- * - #PCM_CHANNELS
+ * - #PCM_CHANNEL_TS
  * - #PCM_CHANNEL_CVH
  * - #PCM_CHANNEL_MS
  * - #PCM_CHANNEL_FLC
@@ -9543,7 +9546,7 @@ struct asm_volume_ctrl_channeltype_gain_pair {
 	 * - #PCM_CHANNEL_CS
 	 * - #PCM_CHANNEL_LB
 	 * - #PCM_CHANNEL_RB
-	 * - #PCM_CHANNELS
+	 * - #PCM_CHANNEL_TS
 	 * - #PCM_CHANNEL_CVH
 	 * - #PCM_CHANNEL_MS
 	 * - #PCM_CHANNEL_FLC
@@ -9615,7 +9618,7 @@ struct asm_volume_ctrl_channelype_mute_pair {
  * - #PCM_CHANNEL_CS
  * - #PCM_CHANNEL_LB
  * - #PCM_CHANNEL_RB
- * - #PCM_CHANNELS
+ * - #PCM_CHANNEL_TS
  * - #PCM_CHANNEL_CVH
  * - #PCM_CHANNEL_MS
  * - #PCM_CHANNEL_FLC
