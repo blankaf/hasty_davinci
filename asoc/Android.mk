@@ -15,7 +15,11 @@ endif
 
 ifeq ($(call is-board-platform,msmnile),true)
 TARGET := msmnile
+ifeq ($(TARGET_PRODUCT), $(filter $(TARGET_PRODUCT), msmnile_au))
+AUDIO_SELECT  := CONFIG_SND_SOC_SA8155=m
+else
 AUDIO_SELECT  := CONFIG_SND_SOC_SM8150=m
+endif
 endif
 
 ifeq ($(call is-board-platform,$(MSMSTEPPE)),true)
