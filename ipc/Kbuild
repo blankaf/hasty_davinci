@@ -55,6 +55,11 @@ ifeq ($(KERNEL_BUILD), 0)
 		export
 		INCS    +=  -include $(AUDIO_ROOT)/config/sm8150autoconf.h
 	endif
+	ifeq ($(CONFIG_ARCH_SDXPRAIRIE), y)
+		include $(AUDIO_ROOT)/config/sdxprairieauto.conf
+		export
+		INCS    +=  -include $(AUDIO_ROOT)/config/sdxprairieautoconf.h
+	endif
 endif
 
 # As per target team, build is done as follows:

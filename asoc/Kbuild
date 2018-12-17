@@ -54,6 +54,11 @@ ifeq ($(KERNEL_BUILD), 0)
 		export
 		INCS    +=  -include $(AUDIO_ROOT)/config/qcs405autoconf.h
 	endif
+	ifeq ($(CONFIG_ARCH_SDXPRAIRIE), y)
+		include $(AUDIO_ROOT)/config/sdxprairieauto.conf
+		export
+		INCS    +=  -include $(AUDIO_ROOT)/config/sdxprairieautoconf.h
+	endif
 endif
 
 # As per target team, build is done as follows:
@@ -119,6 +124,11 @@ endif
 # for qcs405 sound card driver
 ifdef CONFIG_SND_SOC_QCS405
 	MACHINE_OBJS += qcs405.o
+endif
+
+# for sdx sound card driver
+ifdef CONFIG_SND_SOC_MACHINE_SDXPRAIRIE
+	MACHINE_OBJS += sdx-target.o
 endif
 
 ifdef CONFIG_SND_SOC_CPE
@@ -232,6 +242,9 @@ machine_dlkm-y := $(MACHINE_OBJS)
 
 obj-$(CONFIG_SND_SOC_CPE) += cpe_lsm_dlkm.o
 cpe_lsm_dlkm-y := $(CPE_LSM_OBJS)
+
+obj-$(CONFIG_SND_SOC_MACHINE_SDXPRAIRIE) += machine_dlkm.o
+machine_dlkm-y := $(MACHINE_OBJS)
 
 # inject some build related information
 DEFINES += -DBUILD_TIMESTAMP=\"$(shell date -u +'%Y-%m-%dT%H:%M:%SZ')\"
