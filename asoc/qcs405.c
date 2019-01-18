@@ -1,4 +1,4 @@
-/* Copyright (c) 2018, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2018-2019, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -187,6 +187,7 @@ struct msm_asoc_mach_data {
 	struct device_node *dmic_23_gpio_p; /* used by pinctrl API */
 	struct device_node *dmic_45_gpio_p; /* used by pinctrl API */
 	struct device_node *dmic_67_gpio_p; /* used by pinctrl API */
+	struct device_node *lineout_booster_gpio_p; /* used by pinctrl API */
 	struct device_node *mi2s_gpio_p[MI2S_MAX]; /* used by pinctrl API */
 	int dmic_01_gpio_cnt;
 	int dmic_23_gpio_cnt;
@@ -3844,6 +3845,29 @@ static int msm_mclk_event(struct snd_soc_dapm_widget *w,
 	return 0;
 }
 
+static int msm_lineout_booster_ctrl_event(struct snd_soc_dapm_widget *w,
+			       struct snd_kcontrol *k, int event)
+{
+	struct snd_soc_codec *codec = snd_soc_dapm_to_codec(w->dapm);
+	struct snd_soc_card *card = codec->component.card;
+	struct msm_asoc_mach_data *pdata =
+				snd_soc_card_get_drvdata(card);
+
+	pr_debug("%s: event = %d\n", __func__, event);
+	switch (event) {
+	case SND_SOC_DAPM_POST_PMU:
+		msm_cdc_pinctrl_select_active_state(
+					pdata->lineout_booster_gpio_p);
+		break;
+	case SND_SOC_DAPM_PRE_PMD:
+		msm_cdc_pinctrl_select_sleep_state(
+					pdata->lineout_booster_gpio_p);
+		break;
+	}
+
+	return 0;
+}
+
 static const struct snd_soc_dapm_widget msm_dapm_widgets[] = {
 
 	SND_SOC_DAPM_SUPPLY("MCLK",  SND_SOC_NOPM, 0, 0,
@@ -3853,6 +3877,7 @@ static const struct snd_soc_dapm_widget msm_dapm_widgets[] = {
 	SND_SOC_DAPM_SUPPLY("MCLK TX",  SND_SOC_NOPM, 0, 0,
 	msm_mclk_tx_event, SND_SOC_DAPM_PRE_PMU | SND_SOC_DAPM_POST_PMD),
 
+	SND_SOC_DAPM_SPK("lineout booster", msm_lineout_booster_ctrl_event),
 	SND_SOC_DAPM_MIC("Analog Mic3", NULL),
 	SND_SOC_DAPM_MIC("Analog Mic4", NULL),
 
@@ -5022,7 +5047,6 @@ static int msm_snd_hw_params(struct snd_pcm_substream *substream,
 err:
 	return ret;
 }
-
 
 static int msm_snd_cdc_dma_hw_params(struct snd_pcm_substream *substream,
 			     struct snd_pcm_hw_params *params)
@@ -8583,6 +8607,8 @@ static int msm_asoc_machine_probe(struct platform_device *pdev)
 					"qcom,cdc-dmic45-gpios", 0);
 	pdata->dmic_67_gpio_p = of_parse_phandle(pdev->dev.of_node,
 					"qcom,cdc-dmic67-gpios", 0);
+	pdata->lineout_booster_gpio_p = of_parse_phandle(pdev->dev.of_node,
+					"qcom,lineout-booster-gpio", 0);
 
 	pdata->mi2s_gpio_p[PRIM_MI2S] = of_parse_phandle(pdev->dev.of_node,
 					"qcom,pri-mi2s-gpios", 0);
