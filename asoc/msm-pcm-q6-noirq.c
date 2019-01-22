@@ -1,4 +1,4 @@
-/* Copyright (c) 2016-2018, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2016-2019, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -468,7 +468,7 @@ static int msm_pcm_mmap_fd(struct snd_pcm_substream *substream,
 	 * This was the flag used by previous internal wrapper API, which
 	 * used to call dma_buf_fd internally.
 	 */
-	mmap_fd->fd = dma_buf_fd(ab->dma_buf, O_CLOEXEC);
+	mmap_fd->fd = dma_buf_fd(ab->mem_handle, O_CLOEXEC);
 	if (mmap_fd->fd >= 0) {
 		mmap_fd->dir = dir;
 		mmap_fd->actual_size = ab->actual_size;

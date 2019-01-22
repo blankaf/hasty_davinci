@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2018, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2012-2019, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -157,7 +157,7 @@ struct mem_buffer {
 };
 
 struct share_mem_buf {
-	struct dma_buf		*dma_buf;
+	void			*mem_handle;
 	struct mem_buffer	buf[NUM_OF_BUFFERS];
 };
 
@@ -165,7 +165,7 @@ struct mem_map_table {
 	dma_addr_t		phys;
 	void			*data;
 	size_t			size; /* size of buffer */
-	struct dma_buf		*dma_buf;
+	void			*mem_handle;
 };
 
 /* Common */

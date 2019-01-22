@@ -1,4 +1,4 @@
-/* Copyright (c) 2014, 2018, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2014, 2018-2019, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -28,7 +28,7 @@ struct mem_map_data {
 	size_t			map_size;
 	int32_t			q6map_handle;
 	int32_t			ion_map_handle;
-	struct dma_buf		*dma_buf;
+	void			*mem_handle;
 };
 
 struct cal_block_data {

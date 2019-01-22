@@ -298,7 +298,7 @@ struct afe_audio_buffer {
 	uint32_t   used;
 	uint32_t   size;/* size of buffer */
 	uint32_t   actual_size; /* actual number of bytes read by DSP */
-	struct     dma_buf *dma_buf;
+	void       *mem_handle;
 };
 
 struct afe_audio_port_data {
