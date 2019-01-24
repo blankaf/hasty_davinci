@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2016-2018, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2016-2019, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -101,7 +101,7 @@ struct lpi_gpio_state {
 	struct pinctrl_dev *ctrl;
 	struct gpio_chip chip;
 	char __iomem	*base;
-	struct clk *lpass_npa_rsc_island;
+	struct clk *lpass_core_hw_vote;
 };
 
 static const char *const lpi_gpio_groups[] = {
@@ -511,7 +511,7 @@ static int lpi_pinctrl_probe(struct platform_device *pdev)
 	int ret, npins, i;
 	char __iomem *lpi_base;
 	u32 reg;
-	struct clk *lpass_npa_rsc_island = NULL;
+	struct clk *lpass_core_hw_vote = NULL;
 
 	ret = of_property_read_u32(dev->of_node, "reg", &reg);
 	if (ret < 0) {
@@ -621,16 +621,16 @@ static int lpi_pinctrl_probe(struct platform_device *pdev)
 		goto err_snd_evt;
 	}
 
-	/* Register LPASS NPA resource */
-	lpass_npa_rsc_island = devm_clk_get(&pdev->dev, "island_lpass_npa_rsc");
-	if (IS_ERR(lpass_npa_rsc_island)) {
-		ret = PTR_ERR(lpass_npa_rsc_island);
+	/* Register LPASS core hw vote */
+	lpass_core_hw_vote = devm_clk_get(&pdev->dev, "lpass_core_hw_vote");
+	if (IS_ERR(lpass_core_hw_vote)) {
+		ret = PTR_ERR(lpass_core_hw_vote);
 		dev_dbg(&pdev->dev, "%s: clk get %s failed %d\n",
-			__func__, "island_lpass_npa_rsc", ret);
-		lpass_npa_rsc_island = NULL;
+			__func__, "lpass_core_hw_vote", ret);
+		lpass_core_hw_vote = NULL;
 		ret = 0;
 	}
-	state->lpass_npa_rsc_island = lpass_npa_rsc_island;
+	state->lpass_core_hw_vote = lpass_core_hw_vote;
 
 	pm_runtime_set_autosuspend_delay(&pdev->dev, LPI_AUTO_SUSPEND_DELAY);
 	pm_runtime_use_autosuspend(&pdev->dev);
@@ -671,14 +671,14 @@ int lpi_pinctrl_runtime_resume(struct device *dev)
 	struct lpi_gpio_state *state = dev_get_drvdata(dev);
 	int ret = 0;
 
-	if (state->lpass_npa_rsc_island == NULL) {
-		dev_dbg(dev, "%s: Invalid lpass npa rsc node\n", __func__);
+	if (state->lpass_core_hw_vote == NULL) {
+		dev_dbg(dev, "%s: Invalid core hw node\n", __func__);
 		return 0;
 	}
 
-	ret = clk_prepare_enable(state->lpass_npa_rsc_island);
+	ret = clk_prepare_enable(state->lpass_core_hw_vote);
 	if (ret < 0) {
-		dev_err(dev, "%s:lpass npa rsc island enable failed\n",
+		dev_err(dev, "%s:lpass core hw island enable failed\n",
 			__func__);
 	}
 	pm_runtime_set_autosuspend_delay(dev, LPI_AUTO_SUSPEND_DELAY);
@@ -689,11 +689,11 @@ int lpi_pinctrl_runtime_suspend(struct device *dev)
 {
 	struct lpi_gpio_state *state = dev_get_drvdata(dev);
 
-	if (state->lpass_npa_rsc_island == NULL) {
-		dev_dbg(dev, "%s: Invalid lpass npa rsc node\n", __func__);
+	if (state->lpass_core_hw_vote == NULL) {
+		dev_dbg(dev, "%s: Invalid core hw node\n", __func__);
 		return 0;
 	}
-	clk_disable_unprepare(state->lpass_npa_rsc_island);
+	clk_disable_unprepare(state->lpass_core_hw_vote);
 	return 0;
 }
 
