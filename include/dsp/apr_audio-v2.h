@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2018, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2012-2019, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -2481,6 +2481,7 @@ struct afe_port_data_cmd_rt_proxy_port_read_v2 {
 #define AFE_MODULE_AUDIO_DEV_INTERFACE    0x0001020C
 #define AFE_PORT_SAMPLE_RATE_8K           8000
 #define AFE_PORT_SAMPLE_RATE_16K          16000
+#define AFE_PORT_SAMPLE_RATE_44_1K        44100
 #define AFE_PORT_SAMPLE_RATE_48K          48000
 #define AFE_PORT_SAMPLE_RATE_96K          96000
 #define AFE_PORT_SAMPLE_RATE_176P4K       176400
@@ -3799,6 +3800,7 @@ struct afe_imc_dec_enc_info {
 
 struct afe_abr_dec_cfg_t {
 	struct afe_imc_dec_enc_info imc_info;
+	bool is_abr_enabled;
 } __packed;
 
 struct afe_abr_enc_cfg_t {
@@ -4441,6 +4443,19 @@ struct asm_aac_dec_cfg_v2_t {
 	 */
 } __packed;
 
+/*
+ * Payload of the APTX AD decoder configuration parameters in the
+ * #ASM_MEDIA_FMT_APTX_ADAPTIVE media format.
+ */
+struct asm_aptx_ad_dec_cfg_t {
+	uint32_t          sample_rate;
+	/*
+	 * Number of samples per second.
+	 *
+	 * @values 0x0(48000Hz), 0x1(44100Hz)
+	 */
+} __packed;
+
 union afe_enc_config_data {
 	struct asm_sbc_enc_cfg_t sbc_config;
 	struct asm_aac_enc_cfg_t aac_config;
@@ -4462,6 +4477,7 @@ union afe_dec_config_data {
 	struct asm_sbc_dec_cfg_t sbc_config;
 	struct asm_aac_dec_cfg_v2_t aac_config;
 	struct asm_mp3_dec_cfg_t mp3_config;
+	struct asm_aptx_ad_dec_cfg_t aptx_ad_config;
 };
 
 struct afe_dec_config {
