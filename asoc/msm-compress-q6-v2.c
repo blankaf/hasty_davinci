@@ -80,6 +80,10 @@ const DECLARE_TLV_DB_LINEAR(msm_compr_vol_gain, 0,
 
 #define MAX_NUMBER_OF_STREAMS 2
 
+#ifndef COMPRESSED_PERF_MODE_FLAG
+#define COMPRESSED_PERF_MODE_FLAG 0
+#endif
+
 struct msm_compr_gapless_state {
 	bool set_next_stream_id;
 	int32_t stream_opened[MAX_NUMBER_OF_STREAMS];
@@ -1991,6 +1995,11 @@ static int msm_compr_set_params(struct snd_compr_stream *cstream,
 				 __func__, params->codec.id);
 			return -EINVAL;
 		}
+	}
+
+	if (params->codec.flags & COMPRESSED_PERF_MODE_FLAG) {
+		pr_debug("%s: setting perf mode = %d", __func__, LOW_LATENCY_PCM_MODE);
+		prtd->audio_client->perf_mode = LOW_LATENCY_PCM_MODE;
 	}
 
 	switch (params->codec.id) {
