@@ -1016,6 +1016,12 @@ static int msm_compr_send_media_format_block(struct snd_compr_stream *cstream,
 			break;
 		}
 
+		/* overwrite the values in gapless*/
+		if (use_gapless_codec_options && (codec_options != NULL)) {
+			prtd->num_channels = codec_options->pcm_dec.num_channels;
+			chmap = codec_options->pcm_dec.ch_map;
+		}
+
 		if (q6core_get_avcs_api_version_per_service(
 					APRV2_IDS_SERVICE_ID_ADSP_ASM_V) >=
 					ADSP_ASM_API_VERSION_V2) {
@@ -2636,7 +2642,8 @@ static int msm_compr_trigger(struct snd_compr_stream *cstream, int cmd)
 			break;
 		}
 
-		if (prtd->codec_param.codec.format == SNDRV_PCM_FORMAT_S24_LE)
+		if ((prtd->codec_param.codec.format == SNDRV_PCM_FORMAT_S24_LE) ||
+			(prtd->codec_param.codec.format == SNDRV_PCM_FORMAT_S24_3LE))
 			bits_per_sample = 24;
 		else if (prtd->codec_param.codec.format ==
 			 SNDRV_PCM_FORMAT_S32_LE)
@@ -3133,6 +3140,7 @@ static int msm_compr_set_next_track_param(struct snd_compr_stream *cstream,
 	case FORMAT_VORBIS:
 	case FORMAT_ALAC:
 	case FORMAT_APE:
+	case FORMAT_LINEAR_PCM:
 		memcpy(&(prtd->gapless_state.codec_options),
 			codec_options,
 			sizeof(union snd_codec_options));
