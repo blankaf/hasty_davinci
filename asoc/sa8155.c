@@ -1,4 +1,4 @@
-/* Copyright (c) 2014-2018, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2014-2019, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -7211,6 +7211,9 @@ void sa8155_exit(void)
 	platform_driver_unregister(&sa8155_asoc_machine_driver);
 	audio_notifier_deregister("sa8155");
 }
+
+module_init(sa8155_init);
+module_exit(sa8155_exit);
 
 MODULE_DESCRIPTION("ALSA SoC msm");
 MODULE_LICENSE("GPL v2");
