@@ -65,12 +65,14 @@ struct q6core_str {
 	struct apr_svc *core_handle_q;
 	wait_queue_head_t bus_bw_req_wait;
 	wait_queue_head_t mdf_map_resp_wait;
+	wait_queue_head_t key_req_wait;
 	wait_queue_head_t cmd_req_wait;
 	wait_queue_head_t avcs_fwk_ver_req_wait;
 	wait_queue_head_t lpass_npa_rsc_wait;
 	u32 lpass_npa_rsc_rsp_rcvd;
 	u32 bus_bw_resp_received;
 	u32 mdf_map_resp_received;
+	u32 key_resp_received;
 	enum cmd_flags {
 		FLAG_NONE,
 		FLAG_CMDRSP_LICENSE_RESULT
@@ -100,6 +102,30 @@ struct generic_get_data_ {
 	int ints[];
 };
 static struct generic_get_data_ *generic_get_data;
+
+struct secure_key_info {
+	int version;
+	int id;
+	int phy_addr_low;
+	int phy_addr_high;
+	int phy_size;
+	int auth_key;
+	int flags;
+};
+
+struct key_info {
+	int lib_key;
+	dma_addr_t lib_phy_addr;
+	size_t lib_phy_len;
+	int adm_shm_key;
+	dma_addr_t adm_shm_phy_addr;
+	size_t adm_shm_phy_len;
+	int asm_shm_key;
+	dma_addr_t asm_shm_phy_addr;
+	size_t asm_shm_phy_len;
+};
+static struct key_info key_data;
+
 
 static DEFINE_MUTEX(kset_lock);
 static struct kset *audio_uevent_kset;
@@ -200,6 +226,47 @@ int q6core_send_uevent(struct audio_uevent_data *uevent_data, char *event)
 	return kobject_uevent_env(&uevent_data->kobj, KOBJ_CHANGE, env);
 }
 EXPORT_SYMBOL(q6core_send_uevent);
+
+static int update_key_data(uint32_t *payload)
+{
+	int ret = 0;
+	struct secure_key_info info;
+	uint64_t tmp_addr = 0;
+
+	memcpy(&info, (uint8_t *) payload, sizeof(struct secure_key_info));
+
+	/*
+	 * payload[0] is the sys_id. Based on this info,
+	 * corresponding key info is updated.
+	 */
+	tmp_addr = info.phy_addr_high;
+	tmp_addr = (tmp_addr << 32) + info.phy_addr_low;
+
+	switch (info.id) {
+	case DOLBY_DECRYPT_SUB_SYSTEM:
+		key_data.lib_key = info.auth_key;
+		key_data.lib_phy_addr = tmp_addr;
+		key_data.lib_phy_len = info.phy_size;
+		break;
+	case DOLBY_ADM_SHM_SUB_SYSTEM:
+		key_data.adm_shm_key = info.auth_key;
+		key_data.adm_shm_phy_addr = tmp_addr;
+		key_data.adm_shm_phy_len = info.phy_size;
+		break;
+	case DOLBY_ASM_SHM_SUB_SYSTEM:
+		key_data.asm_shm_key = info.auth_key;
+		key_data.asm_shm_phy_addr = tmp_addr;
+		key_data.adm_shm_phy_len = info.phy_size;
+		break;
+	default:
+		pr_err("%s: Invalid key %d rcvd with id %d low adr %d, high adr %d\n",
+				__func__, info.auth_key, info.id,
+				info.phy_addr_low, info.phy_addr_high);
+		ret = -EINVAL;
+		break;
+	}
+	return ret;
+}
 
 static int parse_fwk_version_info(uint32_t *payload)
 {
@@ -333,6 +400,22 @@ static int32_t aprv2_core_fn_q(struct apr_client_data *data, void *priv)
 			q6core_lcl.lpass_npa_rsc_rsp_rcvd = 1;
 			wake_up(&q6core_lcl.lpass_npa_rsc_wait);
 			break;
+		case AVCS_CMD_ADD_POOL_PAGES:
+			pr_debug("%s: Cmd = AVCS_CMD_ADD_POOL_PAGES status[0x%x]\n",
+				__func__, payload1[1]);
+			q6core_lcl.bus_bw_resp_received = 1;
+			wake_up(&q6core_lcl.bus_bw_req_wait);
+			break;
+		case AVCS_CMD_REMOVE_POOL_PAGES:
+			pr_debug("%s: Cmd = AVCS_CMD_REMOVE_POOL_PAGES status[0x%x]\n",
+				__func__, payload1[1]);
+			q6core_lcl.bus_bw_resp_received = 1;
+			wake_up(&q6core_lcl.bus_bw_req_wait);
+			break;
+		case AVCS_CMD_GET_KEY:
+			pr_debug("%s: Cmd = AVCS_CMD_GET_KEY status[0x%x]\n",
+				__func__, payload1[1]);
+			break;
 		default:
 			pr_err("%s: Invalid cmd rsp[0x%x][0x%x] opcode %d\n",
 					__func__,
@@ -410,6 +493,24 @@ static int32_t aprv2_core_fn_q(struct apr_client_data *data, void *priv)
 		}
 		q6core_lcl.avcs_fwk_ver_resp_received = 1;
 		wake_up(&q6core_lcl.avcs_fwk_ver_req_wait);
+		break;
+	case AVCS_CMDRSP_GET_KEY:
+		pr_debug("%s: Received AVCS_CMDRSP_GET_KEY\n",
+			 __func__);
+		payload1 = data->payload;
+		if (data->payload_size < sizeof(struct secure_key_info)) {
+			pr_err("%s: payload has invalid size %d\n",
+					__func__, data->payload_size);
+			return -EINVAL;
+		}
+		ret = update_key_data(payload1);
+		if (ret < 0) {
+			pr_err("%s: Failed to update KEY:%d\n",
+			       __func__, ret);
+			return ret;
+		}
+		q6core_lcl.key_resp_received = 1;
+		wake_up(&q6core_lcl.key_req_wait);
 		break;
 	default:
 		pr_err("%s: Message id from adsp core svc: 0x%x\n",
@@ -1475,6 +1576,129 @@ done:
 	return ret;
 }
 
+int q6core_get_unlock_key(int id, int *key, dma_addr_t *paddr, size_t *plen)
+{
+	struct avs_get_key avs_key;
+	int ret = 0, sz;
+
+	memset(&avs_key, 0, sizeof(avs_key));
+	avs_key.hdr.opcode = AVCS_CMD_GET_KEY;
+
+	/* get payload length */
+	sz = sizeof(struct avs_get_key);
+	avs_key.hdr.hdr_field = APR_HDR_FIELD(APR_MSG_TYPE_SEQ_CMD,
+					APR_HDR_LEN(sizeof(struct apr_hdr)),
+					APR_PKT_VER);
+	avs_key.hdr.src_port = 0;
+	avs_key.hdr.dest_port = 0;
+	avs_key.hdr.token = 0;
+	avs_key.hdr.pkt_size = sz;
+	avs_key.version = 0;
+	avs_key.sys_id = id;
+
+	q6core_lcl.key_resp_received = 0;
+	ret = apr_send_pkt(q6core_lcl.core_handle_q, (uint32_t *)&avs_key);
+	if (ret < 0) {
+		pr_err("%s: get key request failed %d\n",
+			__func__, ret);
+		ret = -EINVAL;
+		goto done;
+	}
+
+	ret = wait_event_timeout(q6core_lcl.key_req_wait,
+				(q6core_lcl.key_resp_received == 1),
+				msecs_to_jiffies(TIMEOUT_MS));
+	if (!ret) {
+		pr_err("%s: timeout. waited for library memory map\n",
+			__func__);
+		ret = -ETIMEDOUT;
+		goto done;
+	}
+	ret = 0;
+	switch (id) {
+	case DOLBY_DECRYPT_SUB_SYSTEM:
+		*key = key_data.lib_key;
+		*paddr = key_data.lib_phy_addr;
+		*plen = key_data.lib_phy_len;
+		 key_data.lib_key = 0;
+		break;
+	case DOLBY_ADM_SHM_SUB_SYSTEM:
+		*key = key_data.adm_shm_key;
+		*paddr = key_data.adm_shm_phy_addr;
+		*plen = key_data.adm_shm_phy_len;
+		key_data.adm_shm_key = 0;
+		break;
+	case DOLBY_ASM_SHM_SUB_SYSTEM:
+		*key = key_data.asm_shm_key;
+		*paddr = key_data.adm_shm_phy_addr;
+		*plen = key_data.asm_shm_phy_len;
+		key_data.asm_shm_key = 0;
+		break;
+	default:
+		pr_err("%s: Invalid id %d passed for get_key\n",
+					__func__, id);
+		ret = -EINVAL;
+		break;
+	}
+
+done:
+	return ret;
+}
+EXPORT_SYMBOL(q6core_get_unlock_key);
+
+int q6core_add_remove_pool_pages(dma_addr_t buf_add, uint32_t bufsz,
+			uint32_t mempool_id, bool add_pages)
+{
+	struct avs_mem_assign_region mem_pool;
+	int ret = 0, sz;
+
+	memset(&mem_pool, 0, sizeof(mem_pool));
+
+	if (add_pages)
+		mem_pool.hdr.opcode = AVCS_CMD_ADD_POOL_PAGES;
+	else
+		mem_pool.hdr.opcode = AVCS_CMD_REMOVE_POOL_PAGES;
+
+	/* get payload length */
+	sz = sizeof(struct avs_mem_assign_region);
+	mem_pool.hdr.hdr_field = APR_HDR_FIELD(APR_MSG_TYPE_SEQ_CMD,
+					APR_HDR_LEN(sizeof(struct apr_hdr)),
+					APR_PKT_VER);
+	mem_pool.hdr.src_port = 0;
+	mem_pool.hdr.dest_port = 0;
+	mem_pool.hdr.token = 0;
+	mem_pool.hdr.pkt_size = sz;
+	mem_pool.pool_id = mempool_id;
+	mem_pool.size = bufsz;
+	mem_pool.addr_lsw = lower_32_bits(buf_add);
+	mem_pool.addr_msw = msm_audio_populate_upper_32_bits(buf_add);
+	pr_debug("%s: sending memory map, size %d\n",
+		  __func__, bufsz);
+
+	q6core_lcl.bus_bw_resp_received = 0;
+	ret = apr_send_pkt(q6core_lcl.core_handle_q, (uint32_t *)&mem_pool);
+	if (ret < 0) {
+		pr_err("%s: library map region failed %d\n",
+			__func__, ret);
+		ret = -EINVAL;
+		goto done;
+	}
+
+	ret = wait_event_timeout(q6core_lcl.bus_bw_req_wait,
+				(q6core_lcl.bus_bw_resp_received == 1),
+				msecs_to_jiffies(TIMEOUT_MS));
+	if (!ret) {
+		pr_err("%s: timeout. waited for library memory map\n",
+			__func__);
+		ret = -ETIMEDOUT;
+		goto done;
+	}
+	ret = 0;
+done:
+	return ret;
+}
+EXPORT_SYMBOL(q6core_add_remove_pool_pages);
+
 static int q6core_dereg_all_custom_topologies(void)
 {
 	int ret = 0;
@@ -1885,6 +2109,7 @@ int __init core_init(void)
 {
 	memset(&q6core_lcl, 0, sizeof(struct q6core_str));
 	init_waitqueue_head(&q6core_lcl.bus_bw_req_wait);
+	init_waitqueue_head(&q6core_lcl.key_req_wait);
 	init_waitqueue_head(&q6core_lcl.cmd_req_wait);
 	init_waitqueue_head(&q6core_lcl.avcs_fwk_ver_req_wait);
 	init_waitqueue_head(&q6core_lcl.mdf_map_resp_wait);
