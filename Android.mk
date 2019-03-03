@@ -23,9 +23,11 @@ include $(MY_LOCAL_PATH)/dsp/codecs/Android.mk
 include $(MY_LOCAL_PATH)/asoc/Android.mk
 include $(MY_LOCAL_PATH)/asoc/codecs/Android.mk
 
-ifneq ($(TARGET_PRODUCT), $(filter $(TARGET_PRODUCT), msmnile_au msmnile_gvmq))
-include $(MY_LOCAL_PATH)/soc/Android.mk
+ifneq ($(TARGET_PRODUCT), $(filter $(TARGET_PRODUCT), msmnile_au sm6150_au msmnile_gvmq))
+$(shell rm -rf $(PRODUCT_OUT)/obj/vendor/qcom/opensource/audio-kernel/asoc/codecs/wcd934x/Module.symvers)
 include $(MY_LOCAL_PATH)/asoc/codecs/wcd934x/Android.mk
+$(shell rm -rf $(PRODUCT_OUT)/obj/vendor/qcom/opensource/audio-kernel/soc/Module.symvers)
+include $(MY_LOCAL_PATH)/soc/Android.mk
 endif
 endif
 
@@ -37,10 +39,12 @@ endif
 endif
 
 ifeq ($(call is-board-platform-in-list,$(MSMSTEPPE) $(TRINKET)),true)
+ifneq ($(TARGET_PRODUCT), $(filter $(TARGET_PRODUCT), sm6150_au))
 $(shell rm -rf $(PRODUCT_OUT)/obj/vendor/qcom/opensource/audio-kernel/asoc/codecs/bolero/Module.symvers)
 include $(MY_LOCAL_PATH)/asoc/codecs/bolero/Android.mk
 $(shell rm -rf $(PRODUCT_OUT)/obj/vendor/qcom/opensource/audio-kernel/asoc/codecs/wcd937x/Module.symvers)
 include $(MY_LOCAL_PATH)/asoc/codecs/wcd937x/Android.mk
+endif
 endif
 
 ifeq ($(call is-board-platform-in-list,msm8953 sdm670 qcs605),true)
