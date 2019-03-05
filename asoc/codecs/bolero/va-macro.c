@@ -1,4 +1,4 @@
-/* Copyright (c) 2018, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2018-2019, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -598,7 +598,7 @@ static int va_macro_enable_dec(struct snd_soc_dapm_widget *w,
 							CF_MIN_3DB_150HZ)
 			schedule_delayed_work(
 					&va_priv->va_hpf_work[decimator].dwork,
-					msecs_to_jiffies(300));
+					msecs_to_jiffies(50));
 		/* apply gain after decimator is enabled */
 		snd_soc_write(codec, tx_gain_ctl_reg,
 			      snd_soc_read(codec, tx_gain_ctl_reg));
