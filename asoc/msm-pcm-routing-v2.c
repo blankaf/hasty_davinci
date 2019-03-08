@@ -39,6 +39,7 @@
 #include <dsp/q6core.h>
 #include <dsp/q6common.h>
 #include <dsp/audio_cal_utils.h>
+#include <dsp/msm_audio_ion.h>
 
 #include "msm-pcm-routing-v2.h"
 #include "msm-pcm-routing-devdep.h"
@@ -86,6 +87,24 @@ static bool is_ds2_on;
 static bool swap_ch;
 static int aanc_level;
 static int msm_ec_ref_port_id;
+
+static uint32_t adm_pp_reg_event_opcode[] = {
+	ADM_CMD_REGISTER_EVENT
+};
+
+static void *kctl_pvt_data;
+
+struct msm_adsp_ion_info {
+	int32_t adsp_lib_ion_fd;
+	int32_t adsp_shmpp_ion_fd[MSM_BACKEND_DAI_MAX][MAX_COPPS_PER_PORT]
+		[MSM_FRONTEND_DAI_MAX];
+	bool adsp_lib_ion_fd_assigned;
+	int32_t adsp_shmpp_ion_fd_assigned[MSM_BACKEND_DAI_MAX]
+		[MAX_COPPS_PER_PORT];
+	void *mem_hdl_lib_ion;
+	void *mem_hdl_shmpp;
+};
+static struct msm_adsp_ion_info	adsp_ion_info;
 
 #define WEIGHT_0_DB 0x4000
 /* all the FEs which can support channel mixer */
@@ -801,6 +820,119 @@ static struct msm_pcm_stream_app_type_cfg
 	fe_dai_app_type_cfg[MSM_FRONTEND_DAI_MAX][2][MSM_BACKEND_DAI_MAX];
 
 static int last_be_id_configured[MSM_FRONTEND_DAI_MAX][MAX_SESSION_TYPES];
+
+static int msm_map_adsp_lib_ion_fd(int fd, int id)
+{
+	dma_addr_t paddr;
+	size_t pa_len = 0;
+	int ret = 0, sec_key;
+
+	ret = msm_audio_ion_phys_assign(&adsp_ion_info.mem_hdl_lib_ion, fd,
+					&paddr, &pa_len, HLOS_TO_ADSP, id);
+
+	if (ret) {
+		pr_err("%s: audio lib ION phys failed, rc = %d\n",
+			__func__, ret);
+		return ret;
+	}
+
+	ret = q6core_add_remove_pool_pages(paddr, pa_len,
+				 ADSP_MEMORY_MAP_HLOS_PHYSPOOL, true);
+	if (ret) {
+		pr_debug("%s: add remove pages failed, rc = %d\n",
+							__func__, ret);
+		/* Assign back to HLOS if add pages cmd failed */
+		/* GET THE KEY AND Go for free */
+		ret = msm_audio_is_hypervisor_supported();
+		if (!ret) {
+			ret = q6core_get_unlock_key(id, &sec_key,
+						&paddr, &pa_len);
+			if (ret) {
+				pr_err("%s Failed to get the key\n", __func__);
+				return ret;
+			}
+		}
+
+		msm_audio_ion_phys_free(adsp_ion_info.mem_hdl_lib_ion,
+					&paddr, &pa_len, ADSP_TO_HLOS,
+					id, sec_key);
+	}
+
+	return ret;
+}
+
+static int msm_unmap_adsp_lib_ion_fd(int id)
+{
+	dma_addr_t paddr;
+	size_t pa_len = 0;
+	int ret = 0;
+	int sec_key;
+
+	if (!adsp_ion_info.mem_hdl_lib_ion) {
+		pr_err("%s: ion_client NULL\n", __func__);
+		return -EINVAL;
+	}
+
+	ret = msm_audio_is_hypervisor_supported();
+	if (!ret) {
+		ret = q6core_get_unlock_key(id, &sec_key, &paddr, &pa_len);
+		if (ret) {
+			pr_err("%s: get_key_unlock failed, rc = %d\n",
+			__func__, ret);
+			return ret;
+		}
+	}
+
+	ret = msm_audio_ion_phys_free(adsp_ion_info.mem_hdl_lib_ion,
+				      &paddr, &pa_len, ADSP_TO_HLOS,
+				      id, sec_key);
+	if (ret) {
+		pr_err("%s: audio lib ION phys failed, rc = %d\n",
+			__func__, ret);
+		return ret;
+	}
+
+	ret = q6core_add_remove_pool_pages(paddr, pa_len,
+				 ADSP_MEMORY_MAP_HLOS_PHYSPOOL, false);
+	if (ret)
+		pr_err("%s: add remove pages failed, rc = %d\n", __func__, ret);
+
+	return ret;
+}
+
+int msm_audio_ion_shm_phyfree(int id)
+{
+	dma_addr_t paddr;
+	size_t pa_len = 0;
+	int ret = 0;
+	int sec_key;
+
+	if (!adsp_ion_info.mem_hdl_shmpp) {
+		pr_err("%s: ion_client NULL\n", __func__);
+		return -EINVAL;
+	}
+
+	ret = msm_audio_is_hypervisor_supported();
+
+	if (!ret) {
+		ret = q6core_get_unlock_key(id, &sec_key, &paddr, &pa_len);
+		if (ret) {
+			pr_err("%s: get_key_unlock failed, rc = %d\n",
+			__func__, ret);
+			return ret;
+		}
+	}
+
+	ret = msm_audio_ion_phys_free(adsp_ion_info.mem_hdl_shmpp,
+				      &paddr, &pa_len, ADSP_TO_HLOS,
+				      id, sec_key);
+	if (ret) {
+		pr_err("%s: audio shm ION for subsystem phys failed, rc = %d\n",
+			__func__, ret);
+	}
+
+	return ret;
+}
 
 /* The caller of this should acquire routing lock */
 void msm_pcm_routing_get_bedai_info(int be_idx,
@@ -1738,6 +1870,56 @@ int msm_pcm_routing_set_channel_mixer_runtime(int be_id, int session_id,
 }
 EXPORT_SYMBOL(msm_pcm_routing_set_channel_mixer_runtime);
 
+/*
+ * msm_pcm_routing_get_portid_copp_idx:
+ *	update the port_id and copp_idx for a given
+ *	fe_id
+ *
+ * @fe_id: front end id
+ * @session_type: indicates session is of type TX or RX
+ * port_i: port_id to be updated as output
+ * copp_idx: copp_idx is updated as output
+ * @stream_type: indicates either Audio or Listen stream type
+ */
+bool msm_pcm_routing_get_portid_copp_idx(int fe_id,
+				int session_type, int *port_i, int *copp_idx)
+{
+	int idx = 0;
+	bool found = false;
+	int be_index = 0, port_id;
+
+	pr_debug("%s:fe_id[%d] sess_type [%d]\n",
+		 __func__, fe_id, session_type);
+	if (!is_mm_lsm_fe_id(fe_id)) {
+		/* bad ID assigned in machine driver */
+		pr_err("%s: bad MM ID %d\n", __func__, fe_id);
+		return -EINVAL;
+	}
+
+	for (be_index = 0; be_index < MSM_BACKEND_DAI_MAX; be_index++) {
+		port_id = msm_bedais[be_index].port_id;
+		if (!msm_bedais[be_index].active ||
+		    !test_bit(fe_id, &msm_bedais[be_index].fe_sessions[0]))
+			continue;
+
+		for (idx = 0; idx < MAX_COPPS_PER_PORT; idx++) {
+			unsigned long copp =
+				session_copp_map[fe_id][session_type][be_index];
+			if (test_bit(idx, &copp)) {
+				pr_debug("%s: port_id: %d, copp_idx:%d\n",
+				       __func__, port_id, idx);
+				*port_i = port_id;
+				*copp_idx = idx;
+				found = true;
+				break;
+			}
+		}
+	}
+
+	return found;
+}
+EXPORT_SYMBOL(msm_pcm_routing_get_portid_copp_idx);
+
 int msm_pcm_routing_reg_phy_stream(int fedai_id, int perf_mode,
 					int dspst_id, int stream_type)
 {
@@ -1893,7 +2075,7 @@ int msm_pcm_routing_reg_phy_stream_v2(int fedai_id, int perf_mode,
 
 void msm_pcm_routing_dereg_phy_stream(int fedai_id, int stream_type)
 {
-	int i, port_type, session_type, path_type, topology, port_id;
+	int i, port_type, session_type, path_type, topology, port_id, ret;
 	struct msm_pcm_routing_fdai_data *fdai;
 
 	if (!is_mm_lsm_fe_id(fedai_id)) {
@@ -1939,8 +2121,21 @@ void msm_pcm_routing_dereg_phy_stream(int fedai_id, int stream_type)
 			adm_close(port_id, fdai->perf_mode, idx);
 			pr_debug("%s:copp:%ld,idx bit fe:%d,type:%d,be:%d\n",
 				 __func__, copp, fedai_id, session_type, i);
-			clear_bit(idx,
-				  &session_copp_map[fedai_id][session_type][i]);
+			if (adsp_ion_info.adsp_shmpp_ion_fd[i][idx][fedai_id]
+					> 0 &&
+			   !(--(adsp_ion_info.adsp_shmpp_ion_fd_assigned[i]
+					   [idx]))) {
+				ret = msm_audio_ion_shm_phyfree(
+						   DOLBY_ADM_SHM_SUB_SYSTEM);
+				if (ret)
+					pr_err("%s: fail to phy free adsp pool %d\n",
+							__func__, ret);
+				else
+					adsp_ion_info.adsp_shmpp_ion_fd[i]
+						   [idx][fedai_id] = 0;
+			}
+			clear_bit(idx, &session_copp_map[fedai_id]
+					[session_type][i]);
 			if ((topology == DOLBY_ADM_COPP_TOPOLOGY_ID ||
 				topology == DS2_ADM_COPP_TOPOLOGY_ID) &&
 			    (fdai->perf_mode == LEGACY_PCM_MODE) &&
@@ -1974,7 +2169,7 @@ static bool msm_pcm_routing_route_is_set(u16 be_id, u16 fe_id)
 static void msm_pcm_routing_process_audio(u16 reg, u16 val, int set)
 {
 	int session_type, path_type, topology;
-	u32 channels, sample_rate;
+	u32 channels, sample_rate, ret;
 	uint16_t bits_per_sample = 16;
 	struct msm_pcm_routing_fdai_data *fdai;
 	uint32_t passthr_mode;
@@ -2142,6 +2337,20 @@ static void msm_pcm_routing_process_audio(u16 reg, u16 val, int set)
 			pr_debug("%s: copp: %ld, reset idx bit fe:%d, type: %d, be:%d topology=0x%x\n",
 				 __func__, copp, val, session_type, reg,
 				 topology);
+			if (adsp_ion_info.adsp_shmpp_ion_fd[reg][idx][val]
+					> 0 &&
+			   !(--(adsp_ion_info.adsp_shmpp_ion_fd_assigned[reg]
+					   [idx]))) {
+				ret = msm_audio_ion_shm_phyfree(
+						DOLBY_ADM_SHM_SUB_SYSTEM);
+				if (ret)
+					pr_err("%s: fail to free from adsp pool %d\n",
+								__func__, ret);
+				else
+					adsp_ion_info.adsp_shmpp_ion_fd[reg]
+						[idx][val] = 0;
+			}
+
 			clear_bit(idx,
 				  &session_copp_map[val][session_type][reg]);
 			if ((topology == DOLBY_ADM_COPP_TOPOLOGY_ID ||
@@ -17899,6 +18108,50 @@ done:
 	return ret;
 }
 
+static int msm_audio_get_copp_idx_fe_idx_from_be_id(int be_idx
+		, int session_type, int *copp_idx, int *fe_idx)
+{
+	int i, idx, port_id, topology;
+	int ret = 0;
+	unsigned long copp;
+
+	if (be_idx >= MSM_BACKEND_DAI_MAX) {
+		pr_err("%s: Invalid be id %d\n", __func__, be_idx);
+		ret = -EINVAL;
+		goto done;
+	}
+	port_id = msm_bedais[be_idx].port_id;
+
+	for_each_set_bit(i, &msm_bedais[be_idx].fe_sessions[0],
+			 MSM_FRONTEND_DAI_MM_SIZE) {
+		for (idx = 0; idx < MAX_COPPS_PER_PORT; idx++) {
+			copp = session_copp_map[i][session_type][be_idx];
+			if (test_bit(idx, &copp)) {
+				topology = msm_routing_get_adm_topology(i,
+						SESSION_TYPE_RX, be_idx);
+				if (!(adsp_ion_info.adsp_shmpp_ion_fd[be_idx]
+							[idx][i]))
+					break;
+			}
+		}
+		if (idx >= MAX_COPPS_PER_PORT)
+			continue;
+		else
+			break;
+	}
+
+	if (i >= MSM_FRONTEND_DAI_MM_SIZE) {
+		pr_err("%s: Invalid FE, exiting\n", __func__);
+		ret = -EINVAL;
+		return ret;
+	}
+	*copp_idx = idx;
+	*fe_idx = i;
+
+done:
+	return ret;
+}
+
 static int msm_audio_get_copp_idx_from_port_id(int port_id, int session_type,
 					 int *copp_idx)
 {
@@ -23454,7 +23707,7 @@ static int msm_pcm_routing_close(struct snd_pcm_substream *substream)
 {
 	struct snd_soc_pcm_runtime *rtd = substream->private_data;
 	unsigned int be_id = rtd->dai_link->id;
-	int i, session_type, path_type, topology;
+	int i, session_type, path_type, topology, ret;
 	struct msm_pcm_routing_bdai_data *bedai;
 	struct msm_pcm_routing_fdai_data *fdai;
 
@@ -23502,12 +23755,24 @@ static int msm_pcm_routing_close(struct snd_pcm_substream *substream)
 			pr_debug("%s: copp:%ld,idx bit fe:%d, type:%d,be:%d topology=0x%x\n",
 				 __func__, copp, i, session_type, be_id,
 				 topology);
-			clear_bit(idx,
-				  &session_copp_map[i][session_type][be_id]);
+			if (adsp_ion_info.adsp_shmpp_ion_fd[be_id][idx][i]
+					> 0 &&
+			   !(--(adsp_ion_info.adsp_shmpp_ion_fd_assigned[be_id]
+					   [idx]))) {
+				ret = msm_audio_ion_shm_phyfree(
+					    DOLBY_ADM_SHM_SUB_SYSTEM);
+				if (ret)
+					pr_err("%s: fail to free from adsp pool %d\n",
+								__func__, ret);
+				else
+					adsp_ion_info.adsp_shmpp_ion_fd[be_id]
+					    [idx][i] = 0;
+			}
+			clear_bit(idx, &session_copp_map[i][session_type]
+					[be_id]);
 			if ((fdai->perf_mode == LEGACY_PCM_MODE) &&
 				(fdai->passthr_mode == LEGACY_PCM))
-				msm_pcm_routing_deinit_pp(port_id,
-							  topology);
+				msm_pcm_routing_deinit_pp(port_id, topology);
 		}
 	}
 
@@ -23858,6 +24123,348 @@ static void msm_routing_unload_topology(uint32_t topology_id)
 				 __func__, topology_id);
 
 }
+
+static int adsp_copp_event_handler(uint32_t opcode,
+		uint32_t token_adm, uint32_t *payload, void *priv)
+{
+	struct snd_soc_pcm_runtime *rtd = priv;
+	int ret = 0;
+
+	if (!rtd) {
+		pr_err("%s: rtd is NULL\n", __func__);
+		return -EINVAL;
+	}
+
+	ret = msm_adsp_copp_inform_mixer_ctl(rtd, payload);
+	if (ret) {
+		pr_err("%s: failed to inform mixer ctrl. err = %d\n",
+			__func__, ret);
+		return -EINVAL;
+	}
+
+	return ret;
+}
+
+static int msm_routing_get_copp_callback_event(struct snd_kcontrol *kcontrol,
+					struct snd_ctl_elem_value *ucontrol)
+{
+	uint32_t payload_size = 0;
+	struct dsp_adm_callback_list *oldest_event;
+	unsigned long spin_flags = 0;
+	struct dsp_adm_callback_prtd *kctl_prtd = NULL;
+	int ret = 0;
+
+	kctl_prtd = (struct dsp_adm_callback_prtd *)
+				kcontrol->private_data;
+
+	if (kctl_prtd == NULL ||
+		(kctl_prtd == kctl_pvt_data)) {
+		pr_err("%s: ADM PP event queue is not initialized.\n",
+				__func__);
+		kcontrol->private_data = NULL;
+		ret = -EINVAL;
+		goto done;
+	}
+
+	spin_lock_irqsave(&kctl_prtd->prtd_spin_lock, spin_flags);
+	pr_debug("%s: %d events in queue.\n", __func__, kctl_prtd->event_count);
+	if (list_empty(&kctl_prtd->event_queue)) {
+		pr_err("%s: ADM PP event queue is empty.\n", __func__);
+		ret = -EINVAL;
+		spin_unlock_irqrestore(&kctl_prtd->prtd_spin_lock, spin_flags);
+		goto done;
+	}
+
+	oldest_event = list_first_entry(&kctl_prtd->event_queue,
+					struct dsp_adm_callback_list, list);
+	list_del(&oldest_event->list);
+	kctl_prtd->event_count--;
+	spin_unlock_irqrestore(&kctl_prtd->prtd_spin_lock, spin_flags);
+
+	payload_size = oldest_event->event.payload_len;
+	pr_debug("%s: event fetched: type %d length %d\n",
+				__func__, oldest_event->event.event_type,
+				oldest_event->event.payload_len);
+	memcpy(ucontrol->value.bytes.data, &oldest_event->event,
+			sizeof(struct msm_adsp_event_data) + payload_size);
+	kfree(oldest_event);
+
+done:
+	return ret;
+}
+
+static int msm_routing_put_copp_callback_event(struct snd_kcontrol *kcontrol,
+					struct snd_ctl_elem_value *ucontrol)
+{
+	return 0;
+}
+
+static int msm_copp_callback_event_info(struct snd_kcontrol *kcontrol,
+			struct snd_ctl_elem_info *uinfo)
+{
+	uinfo->type = SNDRV_CTL_ELEM_TYPE_BYTES;
+	uinfo->count =
+		sizeof(((struct snd_ctl_elem_value *)0)->value.bytes.data);
+
+	return 0;
+}
+
+static const struct snd_kcontrol_new copp_callback_event_controls[] = {
+	{
+		.access = SNDRV_CTL_ELEM_ACCESS_READWRITE,
+		.iface  = SNDRV_CTL_ELEM_IFACE_MIXER,
+		.name   = "ADSP COPP Callback Event",
+		.info   = msm_copp_callback_event_info,
+		.get    = msm_routing_get_copp_callback_event,
+		.put    = msm_routing_put_copp_callback_event,
+	},
+};
+
+int msm_rtic_ack_info(struct snd_kcontrol *kcontrol,
+			struct snd_ctl_elem_info *uinfo)
+{
+	uinfo->type = SNDRV_CTL_ELEM_TYPE_BYTES;
+	uinfo->count =
+		sizeof(((struct snd_ctl_elem_value *)0)->value.bytes.data);
+
+	return 0;
+}
+
+static int msm_routing_get_copp_rtic_event_ack(struct snd_kcontrol *kcontrol,
+					struct snd_ctl_elem_value *ucontrol)
+{
+	return 0;
+}
+
+static int msm_routing_put_copp_rtic_event_ack(struct snd_kcontrol *kcontrol,
+					struct snd_ctl_elem_value *ucontrol)
+{
+	struct param_hdr_v3 param_hdr;
+	u8 *packed_params = NULL;
+	u32 packed_params_size = 0;
+	void *data = NULL;
+	int ret = 0, len = 0;
+	int port_id, port_idx, copp_idx, adm_token;
+	struct msm_adm_ack *ev = NULL;
+
+	memset(&param_hdr, 0, sizeof(param_hdr));
+	ev = (struct msm_adm_ack *)ucontrol->value.bytes.data;
+	param_hdr.param_size	= ev->param_size;
+	param_hdr.param_id	= AVS_PARAM_ID_RTIC_EVENT_ACK;
+	data = kzalloc(param_hdr.param_size, GFP_KERNEL);
+	if (!data) {
+		ret =  -ENOMEM;
+		goto done;
+	}
+
+	memcpy(data, ucontrol->value.bytes.data + sizeof(uint32_t),
+						param_hdr.param_size);
+	len += param_hdr.param_size;
+	param_hdr.module_id = ev->module_id;
+	param_hdr.instance_id = ev->instance_id;
+	adm_token = ev->adm_token;
+
+	packed_params_size = sizeof(struct param_hdr_v3)
+				+ param_hdr.param_size;
+	packed_params = kzalloc(packed_params_size, GFP_KERNEL);
+	if (!packed_params) {
+		ret =  -ENOMEM;
+		goto done;
+	}
+
+	packed_params_size = 0;
+	ret = q6common_pack_pp_params(packed_params, &param_hdr,
+				data, &packed_params_size);
+	if (ret) {
+		pr_err("%s: Failed to pack params, error %d\n",
+				       __func__, ret);
+		goto done;
+	}
+
+	copp_idx = (adm_token) & 0XFF;
+	port_idx = ((adm_token) >> 16) & 0xFF;
+	port_id  = afe_get_port_id(port_idx);
+	if (port_id == -EINVAL) {
+		pr_err("%s: invalid port_id\n", __func__);
+		ret = -EINVAL;
+		goto done;
+	}
+
+	ret = adm_set_pp_params(port_id, copp_idx, NULL, packed_params,
+						packed_params_size);
+	if (ret) {
+		pr_err("%s: Setting param failed with err=%d\n",
+						__func__, ret);
+		ret = -EINVAL;
+		goto done;
+	}
+
+done:
+	kfree(data);
+	kfree(packed_params);
+
+	return ret;
+}
+
+static const struct snd_kcontrol_new rtic_event_ack_controls[] = {
+	{
+		.access = SNDRV_CTL_ELEM_ACCESS_READWRITE,
+		.iface  = SNDRV_CTL_ELEM_IFACE_MIXER,
+		.name   = "COPP Event Ack",
+		.info   = msm_rtic_ack_info,
+		.get    = msm_routing_get_copp_rtic_event_ack,
+		.put    = msm_routing_put_copp_rtic_event_ack,
+	},
+};
+
+static int msm_routing_get_copp_shm_ion_fd(struct snd_kcontrol *kcontrol,
+					struct snd_ctl_elem_value *ucontrol)
+{
+	return 0;
+}
+
+static int msm_routing_put_copp_shm_ion_fd(struct snd_kcontrol *kcontrol,
+					struct snd_ctl_elem_value *ucontrol)
+{
+	int ret = 0;
+	int shm_fd, be_id, fe_id, fe_idx;
+	int len = 0;
+	struct param_hdr_v3 param_hdr;
+	int copp_idx, port_id;
+
+	memset(&param_hdr, 0, sizeof(param_hdr));
+	shm_fd = ucontrol->value.integer.value[len++];
+	param_hdr.module_id = ucontrol->value.integer.value[len++];
+	param_hdr.instance_id = ucontrol->value.integer.value[len++];
+	be_id = ucontrol->value.integer.value[len++];
+	fe_id = ucontrol->value.integer.value[len];
+
+	param_hdr.param_id = AVS_PARAM_ID_RTIC_SHARED_MEMORY_ADDR;
+	param_hdr.param_size = sizeof(struct adm_event_shm);
+
+	port_id	= msm_bedais[be_id].port_id;
+	ret = msm_audio_get_copp_idx_fe_idx_from_be_id(be_id, SESSION_TYPE_RX,
+					    &copp_idx, &fe_idx);
+	if (ret) {
+		pr_err("%s:failure in getting copp_idx\n", __func__);
+		return ret;
+	}
+
+	ret = adm_map_shm_fd(&adsp_ion_info.mem_hdl_shmpp, shm_fd,
+				&param_hdr, port_id, copp_idx);
+	if (ret) {
+		pr_err("%s:failure in setting shm fd\n", __func__);
+		return ret;
+	}
+	adsp_ion_info.adsp_shmpp_ion_fd[be_id][copp_idx][fe_idx] = shm_fd;
+	adsp_ion_info.adsp_shmpp_ion_fd_assigned[be_id][copp_idx]++;
+
+	return ret;
+}
+
+static const struct snd_kcontrol_new copp_shm_ion_controls[] = {
+	SOC_SINGLE_MULTI_EXT("COPP ION FD", SND_SOC_NOPM, 0, 0xFFFFFFFF,
+	0, 128, msm_routing_get_copp_shm_ion_fd,
+	msm_routing_put_copp_shm_ion_fd),
+};
+
+int msm_copp_event_info(struct snd_kcontrol *kcontrol,
+			struct snd_ctl_elem_info *uinfo)
+{
+	uinfo->type = SNDRV_CTL_ELEM_TYPE_BYTES;
+	uinfo->count =
+		sizeof(((struct snd_ctl_elem_value *)0)->value.bytes.data);
+
+	return 0;
+}
+
+static int msm_routing_get_copp_event_cmd(struct snd_kcontrol *kcontrol,
+					struct snd_ctl_elem_value *ucontrol)
+{
+	return 0;
+}
+
+static int msm_routing_put_copp_event_cmd(struct snd_kcontrol *kcontrol,
+					struct snd_ctl_elem_value *ucontrol)
+{
+	struct msm_adm_event_data *ev = NULL;
+	int be_id = 0, ret = 0, param_size, opcode;
+	int copp_idx, port_id;
+
+	ev = (struct msm_adm_event_data *)ucontrol->value.bytes.data;
+	param_size = ev->payload_length - sizeof(struct module_info);
+	opcode = adm_pp_reg_event_opcode[(ev->event_type)
+						- ADSP_ADM_SERVICE_ID];
+	be_id = ev->mod_info.be_id;
+	port_id = msm_bedais[be_id].port_id;
+
+	ret = msm_audio_get_copp_idx_from_port_id(port_id, SESSION_TYPE_RX,
+					    &copp_idx);
+
+	if (ret) {
+		pr_debug("%s:failure in getting copp_idx\n", __func__);
+		return ret;
+	}
+
+	q6adm_register_callback(&adsp_copp_event_handler);
+	q6adm_send_event_register_cmd(port_id, copp_idx, (u8 *) (ev->payload),
+						param_size, opcode);
+	return ret;
+}
+
+static const struct snd_kcontrol_new copp_event_controls[] = {
+	{
+		.access = SNDRV_CTL_ELEM_ACCESS_READWRITE,
+		.iface  = SNDRV_CTL_ELEM_IFACE_MIXER,
+		.name   = "COPP Event Cmd",
+		.info   = msm_copp_event_info,
+		.get    = msm_routing_get_copp_event_cmd,
+		.put    = msm_routing_put_copp_event_cmd,
+	},
+};
+
+static int msm_routing_get_adsp_lib_ion_cmd(struct snd_kcontrol *kcontrol,
+					struct snd_ctl_elem_value *ucontrol)
+{
+	return 0;
+}
+
+static int msm_routing_put_adsp_lib_ion_cmd(struct snd_kcontrol *kcontrol,
+					struct snd_ctl_elem_value *ucontrol)
+{
+	int ret = 0, enable = 0;
+
+	adsp_ion_info.adsp_lib_ion_fd = ucontrol->value.integer.value[0];
+	enable = ucontrol->value.integer.value[1];
+
+	if (enable && !(adsp_ion_info.adsp_lib_ion_fd_assigned)) {
+		ret = msm_map_adsp_lib_ion_fd(adsp_ion_info.adsp_lib_ion_fd,
+						DOLBY_DECRYPT_SUB_SYSTEM);
+		if (ret)
+			pr_err("%s: fail to phy asgn/add to adsp pool %d\n",
+					__func__, ret);
+		else
+			adsp_ion_info.adsp_lib_ion_fd_assigned = true;
+	} else if ((!enable) && adsp_ion_info.adsp_lib_ion_fd_assigned) {
+		ret = msm_unmap_adsp_lib_ion_fd(DOLBY_DECRYPT_SUB_SYSTEM);
+		if (ret)
+			pr_err("%s: fail to free from adsp pool %d\n",
+					__func__, ret);
+		adsp_ion_info.adsp_lib_ion_fd_assigned = false;
+		q6adm_clear_callback();
+	} else {
+		pr_err("%s: Invalid flag value for lib ion fd %d\n",
+				__func__, enable);
+	}
+
+	return ret;
+}
+
+static const struct snd_kcontrol_new adsp_lib_ion_controls[] = {
+	SOC_SINGLE_MULTI_EXT("ADSP ION LIB FD", SND_SOC_NOPM, 0, 0xFFFFFFFF,
+	0, 128, msm_routing_get_adsp_lib_ion_cmd,
+	msm_routing_put_adsp_lib_ion_cmd),
+};
 
 static int msm_routing_put_device_pp_params_mixer(struct snd_kcontrol *kcontrol,
 					struct snd_ctl_elem_value *ucontrol)
@@ -24226,6 +24833,17 @@ static int msm_routing_probe(struct snd_soc_platform *platform)
 			platform, msm_routing_feature_support_mixer_controls,
 			ARRAY_SIZE(msm_routing_feature_support_mixer_controls));
 
+	snd_soc_add_platform_controls(platform, copp_event_controls,
+				      ARRAY_SIZE(copp_event_controls));
+	snd_soc_add_platform_controls(platform, copp_shm_ion_controls,
+				      ARRAY_SIZE(copp_shm_ion_controls));
+	snd_soc_add_platform_controls(platform, rtic_event_ack_controls,
+				      ARRAY_SIZE(rtic_event_ack_controls));
+	snd_soc_add_platform_controls(platform, copp_callback_event_controls,
+				      ARRAY_SIZE(copp_callback_event_controls));
+	kctl_pvt_data = &platform->component;
+	snd_soc_add_platform_controls(platform, adsp_lib_ion_controls,
+				      ARRAY_SIZE(adsp_lib_ion_controls));
 	return 0;
 }
 

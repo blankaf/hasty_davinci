@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2012-2017, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2012-2017, 2019 The Linux Foundation. All rights reserved.
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
  * only version 2 as published by the Free Software Foundation.
@@ -18,6 +18,14 @@
 #ifdef CONFIG_QTI_PP
 int msm_adsp_inform_mixer_ctl(struct snd_soc_pcm_runtime *rtd,
 			uint32_t *payload);
+int msm_adsp_adm_inform_mixer_ctl(struct snd_soc_pcm_runtime *rtd,
+			uint32_t *payload);
+int msm_adsp_init_mixer_ctl_adm_pp_event_queue(struct snd_soc_pcm_runtime *rtd);
+int msm_adsp_clean_mixer_ctl_adm_pp_event_queue(
+		struct snd_soc_pcm_runtime *rtd);
+int msm_adsp_copp_inform_mixer_ctl(struct snd_soc_pcm_runtime *rtd,
+			uint32_t *payload);
+
 int msm_adsp_init_mixer_ctl_pp_event_queue(struct snd_soc_pcm_runtime *rtd);
 int msm_adsp_clean_mixer_ctl_pp_event_queue(struct snd_soc_pcm_runtime *rtd);
 int msm_adsp_stream_cmd_info(struct snd_kcontrol *kcontrol,

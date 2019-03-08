@@ -696,8 +696,8 @@ int q6asm_get_session_time_legacy(struct audio_client *ac, uint64_t *tstamp);
 int q6asm_send_stream_cmd(struct audio_client *ac,
 			  struct msm_adsp_event_data *data);
 
-int q6asm_send_ion_fd(struct audio_client *ac, int fd);
-
+int q6asm_audio_map_shm_fd(struct audio_client *ac, void **mem_hdl,
+			   int fd);
 int q6asm_send_rtic_event_ack(struct audio_client *ac,
 			      void *param, uint32_t params_length);
 

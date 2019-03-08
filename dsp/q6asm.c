@@ -8834,20 +8834,20 @@ fail_cmd:
 EXPORT_SYMBOL(q6asm_set_aptx_dec_bt_addr);
 
 /**
- * q6asm_send_ion_fd -
+ *q6asm_audio_map_shm_fd
  *       command to send ION memory map for ASM
  *
  * @ac: Audio client handle
+ * handle: ion memory handle
  * @fd: ION file desc
  *
  * Returns 0 on success or error on failure
  */
-int q6asm_send_ion_fd(struct audio_client *ac, int fd)
+int q6asm_audio_map_shm_fd(struct audio_client *ac,
+				void **handle, int fd)
 {
-	void *mem_handle;
 	dma_addr_t paddr;
 	size_t pa_len = 0;
-	void *vaddr;
 	int ret;
 	int sz = 0;
 	struct avs_rtic_shared_mem_addr shm;
@@ -8863,17 +8863,11 @@ int q6asm_send_ion_fd(struct audio_client *ac, int fd)
 		goto fail_cmd;
 	}
 
-	ret = msm_audio_ion_import(&mem_handle,
-				   fd,
-				   NULL,
-				   0,
-				   &paddr,
-				   &pa_len,
-				   &vaddr);
+	ret = msm_audio_ion_phys_assign(handle, fd, &paddr, &pa_len,
+					HLOS_TO_ADSP, DOLBY_ASM_SHM_SUB_SYSTEM);
 	if (ret) {
 		pr_err("%s: audio ION import failed, rc = %d\n",
 		       __func__, ret);
-		ret = -ENOMEM;
 		goto fail_cmd;
 	}
 	/* get payload length */
@@ -8925,7 +8919,7 @@ int q6asm_send_ion_fd(struct audio_client *ac, int fd)
 fail_cmd:
 	return ret;
 }
-EXPORT_SYMBOL(q6asm_send_ion_fd);
+EXPORT_SYMBOL(q6asm_audio_map_shm_fd);
 
 /**
  * q6asm_send_rtic_event_ack -
