@@ -31,6 +31,7 @@
 #include <asm/dma-iommu.h>
 #include <dsp/msm_audio_ion.h>
 #include <soc/qcom/secure_buffer.h>
+#include <soc/qcom/scm.h>
 
 #define MSM_AUDIO_ION_PROBED (1 << 0)
 
@@ -47,6 +48,9 @@ enum msm_audio_mem_type{
 	MSM_AUDIO_MEM_TYPE_DMA,
 };
 
+#define TZ_PIL_PROTECT_MEM_SUBSYS_ID 0x0C
+#define TZ_PIL_CLEAR_PROTECT_MEM_SUBSYS_ID 0x0D
+
 struct msm_audio_ion_private {
 	bool smmu_enabled;
 	struct device *cb_dev;
@@ -57,6 +61,7 @@ struct msm_audio_ion_private {
 	u64 smmu_sid_bits;
 	u32 smmu_version;
 	u32 iova_start_addr;
+	bool is_non_hypervisor;
 };
 
 struct msm_audio_alloc_data {
@@ -111,7 +116,7 @@ static int msm_audio_dma_buf_map(void *handle, void *vaddr,
 }
 
 static int msm_audio_ion_dma_buf_map(struct dma_buf *dma_buf,
-				 dma_addr_t *addr, size_t *len)
+				 dma_addr_t *addr, size_t *len, bool is_iova)
 {
 
 	struct msm_audio_alloc_data *alloc_data;
@@ -169,8 +174,13 @@ static int msm_audio_ion_dma_buf_map(struct dma_buf *dma_buf,
 	}
 
 	/* physical address from mapping */
-	*addr = MSM_AUDIO_ION_PHYS_ADDR(alloc_data);
-	alloc_data->paddr = addr;
+	if (!is_iova) {
+		*addr = sg_phys(alloc_data->table->sgl);
+	} else {
+		*addr = MSM_AUDIO_ION_PHYS_ADDR(alloc_data);
+		alloc_data->paddr = addr;
+	}
+
 	msm_audio_ion_add_allocation(&msm_audio_ion_data,
 				     alloc_data);
 	return rc;
@@ -206,6 +216,45 @@ static int msm_audio_ion_unmap_kernel(void *vaddr, void *handle)
 	}
 
 err:
+	return rc;
+}
+
+static int msm_audio_retrv_phys_dma_buf(void *handle,
+					dma_addr_t *addr, size_t *len)
+{
+	int rc = 0;
+	struct msm_audio_alloc_data *alloc_data = NULL;
+	struct list_head *ptr, *next;
+	struct device *cb_dev = msm_audio_ion_data.cb_dev;
+	bool found = false;
+
+	/*
+	 * Though list_for_each_safe is delete safe, lock
+	 * should be explicitly acquired to avoid race condition
+	 * on adding elements to the list.
+	 */
+	mutex_lock(&(msm_audio_ion_data.list_mutex));
+	list_for_each_safe(ptr, next,
+			    &(msm_audio_ion_data.alloc_list)) {
+		alloc_data = list_entry(ptr, struct msm_audio_alloc_data,
+					list);
+
+		if (alloc_data->handle == handle) {
+			found = true;
+			*addr = sg_phys(alloc_data->table->sgl);
+			*len  = alloc_data->len;
+			break;
+		}
+	}
+	mutex_unlock(&(msm_audio_ion_data.list_mutex));
+
+	if (!found) {
+		dev_err(cb_dev,
+			"%s: cannot find allocation, handle %pK\n",
+			__func__, handle);
+		rc = -EINVAL;
+	}
+
 	return rc;
 }
 
@@ -285,17 +334,17 @@ static int msm_audio_dma_buf_unmap(void *handle)
 }
 
 static int msm_audio_ion_get_phys(struct dma_buf *dma_buf,
-				  dma_addr_t *addr, size_t *len)
+				  dma_addr_t *addr, size_t *len, bool is_iova)
 {
 	int rc = 0;
 
-	rc = msm_audio_ion_dma_buf_map(dma_buf, addr, len);
+	rc = msm_audio_ion_dma_buf_map(dma_buf, addr, len, is_iova);
 	if (rc) {
 		pr_err("%s: failed to map DMA buf, err = %d\n",
 			__func__, rc);
 		goto err;
 	}
-	if (msm_audio_ion_data.smmu_enabled) {
+	if (msm_audio_ion_data.smmu_enabled && is_iova) {
 		/* Append the SMMU SID information to the IOVA address */
 		*addr |= msm_audio_ion_data.smmu_sid_bits;
 	}
@@ -369,8 +418,11 @@ static int msm_audio_ion_map_buf(void *handle, dma_addr_t *paddr,
 				 size_t *plen, void **vaddr)
 {
 	int rc = 0;
+	bool is_iova = true;
 
-	rc = msm_audio_ion_get_phys((struct dma_buf*) handle, paddr, plen);
+	rc = msm_audio_ion_get_phys((struct dma_buf *) handle,
+					paddr, plen, is_iova);
+
 	if (rc) {
 		pr_err("%s: ION Get Physical for AUDIO failed, rc = %d\n",
 				__func__, rc);
@@ -474,6 +526,151 @@ err:
 }
 EXPORT_SYMBOL(msm_audio_ion_alloc);
 
+static int msm_audio_hyp_assign(dma_addr_t *paddr, size_t *pa_len,
+				u8 assign_type)
+{
+	int srcVM[1] = {VMID_HLOS};
+	int destVM[1] = {VMID_CP_ADSP_SHARED};
+	int destVMperm[1] = {PERM_READ | PERM_WRITE | PERM_EXEC};
+	int ret = 0;
+
+	switch (assign_type) {
+	case HLOS_TO_ADSP:
+		srcVM[0] = VMID_HLOS;
+		destVM[0] = VMID_CP_ADSP_SHARED;
+		break;
+	case ADSP_TO_HLOS:
+		srcVM[0] = VMID_CP_ADSP_SHARED;
+		destVM[0] = VMID_HLOS;
+		break;
+	default:
+		pr_err("%s: Invalid assign type = %d\n", __func__, assign_type);
+		ret = -EINVAL;
+		goto done;
+	}
+
+	ret = hyp_assign_phys(*paddr, *pa_len, srcVM, 1, destVM, destVMperm, 1);
+	if (ret)
+		pr_err("%s: hyp_assign_phys failed for type %d, rc = %d\n",
+			 __func__, assign_type, ret);
+done:
+	return ret;
+}
+
+int msm_audio_ion_phys_free(void *handle,
+			   dma_addr_t *paddr,
+			   size_t *pa_len,
+			   u8 assign_type,
+			   int id,
+			   int key)
+{
+	int ret;
+	struct scm_desc desc;
+	struct {
+		uint8_t skey;
+	} routargs;
+
+	memset(&desc, 0, sizeof(desc));
+
+	if (!(msm_audio_ion_data.device_status & MSM_AUDIO_ION_PROBED)) {
+		pr_debug("%s:probe is not done, deferred\n", __func__);
+		return -EPROBE_DEFER;
+	}
+
+	if (!handle || !paddr || !pa_len) {
+		pr_err("%s: Invalid params\n", __func__);
+		return -EINVAL;
+	}
+
+	ret = msm_audio_retrv_phys_dma_buf(handle, paddr, pa_len);
+
+	if (ret) {
+		pr_err("%s: ION Get Physical for AUDIO failed, ret = %d\n",
+				__func__, ret);
+		goto err_ion;
+	}
+
+	if (msm_audio_ion_data.is_non_hypervisor) {
+		routargs.skey = (uint8_t)key;
+		desc.args[0] = id;
+		desc.args[1] = *paddr;
+		desc.args[2] = *pa_len;
+		desc.args[3] = routargs.skey;
+		desc.arginfo = SCM_ARGS(4);
+		ret = scm_call2(SCM_SIP_FNID(SCM_SVC_PIL,
+				TZ_PIL_CLEAR_PROTECT_MEM_SUBSYS_ID), &desc);
+	} else {
+		ret = msm_audio_hyp_assign(paddr, pa_len, assign_type);
+	}
+	msm_audio_ion_free(handle);
+
+err_ion:
+	handle = NULL;
+	return ret;
+}
+EXPORT_SYMBOL(msm_audio_ion_phys_free);
+
+int msm_audio_ion_phys_assign(void **handle, int fd,
+		dma_addr_t *paddr, size_t *pa_len, u8 assign_type, int id)
+{
+	int ret;
+	struct scm_desc desc;
+	bool is_iova = false;
+
+	memset(&desc, 0, sizeof(desc));
+
+	if (!(msm_audio_ion_data.device_status & MSM_AUDIO_ION_PROBED)) {
+		pr_debug("%s:probe is not done, deferred\n", __func__);
+		return -EPROBE_DEFER;
+	}
+
+	if (!handle || !paddr || !pa_len) {
+		pr_err("%s: Invalid params\n", __func__);
+		return -EINVAL;
+	}
+
+	/* bufsz should be 0 and fd shouldn't be 0 as of now */
+	*handle  = dma_buf_get(fd);
+
+	if (IS_ERR_OR_NULL((void *)(*handle))) {
+		pr_err("%s: dma_buf_get failed\n", __func__);
+		ret = -EINVAL;
+		goto err;
+	}
+
+	ret = msm_audio_ion_get_phys((struct dma_buf *)*handle,
+					paddr, pa_len, is_iova);
+	if (ret) {
+		pr_err("%s: ION Get Physical for AUDIO failed, ret = %d\n",
+				__func__, ret);
+		goto err_ion;
+	}
+
+	if (msm_audio_ion_data.is_non_hypervisor) {
+		desc.args[0] = id;
+		desc.args[1] = *paddr;
+		desc.args[2] = *pa_len;
+		desc.arginfo = SCM_ARGS(3);
+		ret = scm_call2(SCM_SIP_FNID(SCM_SVC_PIL,
+				TZ_PIL_PROTECT_MEM_SUBSYS_ID), &desc);
+	} else {
+		ret = msm_audio_hyp_assign(paddr, pa_len, assign_type);
+	}
+	return ret;
+
+err_ion:
+	dma_buf_put(*handle);
+err:
+	*handle = NULL;
+	return ret;
+}
+EXPORT_SYMBOL(msm_audio_ion_phys_assign);
+
+bool msm_audio_is_hypervisor_supported(void)
+{
+	return !(msm_audio_ion_data.is_non_hypervisor);
+}
+EXPORT_SYMBOL(msm_audio_is_hypervisor_supported);
 /**
  * msm_audio_ion_dma_map -
  *        Memory maps for a given DMA buffer
@@ -810,12 +1007,14 @@ static int msm_audio_ion_probe(struct platform_device *pdev)
 	u64 smmu_sid = 0;
 	u64 smmu_sid_mask = 0;
 	const char *msm_audio_ion_dt = "qcom,smmu-enabled";
+	const char *msm_audio_ion_non_hyp = "qcom,non-hyp-assign";
 	const char *msm_audio_ion_smmu = "qcom,smmu-version";
 	const char *msm_audio_ion_iova_start_addr = "qcom,iova-start-addr";
 	const char *mdm_audio_ion_scm = "qcom,scm-mp-enabled";
 	const char *msm_audio_ion_smmu_sid_mask = "qcom,smmu-sid-mask";
 	bool smmu_enabled;
 	bool scm_mp_enabled;
+	bool is_non_hypervisor_en;
 	enum apr_subsys_state q6_state;
 	struct device *dev = &pdev->dev;
 	struct of_phandle_args iommuspec;
@@ -828,6 +1027,10 @@ static int msm_audio_ion_probe(struct platform_device *pdev)
 		msm_audio_ion_data.smmu_enabled = 0;
 		return 0;
 	}
+
+	is_non_hypervisor_en = of_property_read_bool(dev->of_node,
+					     msm_audio_ion_non_hyp);
+	msm_audio_ion_data.is_non_hypervisor = is_non_hypervisor_en;
 
 	smmu_enabled = of_property_read_bool(dev->of_node,
 					     msm_audio_ion_dt);
