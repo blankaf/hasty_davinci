@@ -65,6 +65,11 @@ ifeq ($(KERNEL_BUILD), 0)
 		export
 		INCS    +=  -include $(AUDIO_ROOT)/config/sdxprairieautoconf.h
 	endif
+	ifeq ($(CONFIG_QTI_GVM), y)
+		include $(AUDIO_ROOT)/config/gvmauto.conf
+		export
+		INCS    +=  -include $(AUDIO_ROOT)/config/gvmautoconf.h
+	endif
 endif
 
 # As per target team, build is done as follows:
@@ -153,7 +158,9 @@ ifdef CONFIG_SND_SOC_QDSP6V2
 	PLATFORM_OBJS += msm-dai-fe.o
 	PLATFORM_OBJS += msm-dai-q6-hdmi-v2.o
 	PLATFORM_OBJS += msm-dai-q6-v2.o
+ifndef CONFIG_QTI_GVM
 	PLATFORM_OBJS += msm-dai-slim.o
+endif
 	PLATFORM_OBJS += msm-dai-stub-v2.o
 	PLATFORM_OBJS += msm-lsm-client.o
 	PLATFORM_OBJS += msm-pcm-afe-v2.o
