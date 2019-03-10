@@ -8843,9 +8843,9 @@ EXPORT_SYMBOL(afe_cal_init_hwdep);
  * afe_vote_lpass_core_hw -
  *        Voting for lpass core hardware
  *
- * @hw_block_id: id of the hardware block
- * @client_name: client name
- * @client_handle: client handle
+ * @hw_block_id: ID of hw block to vote for
+ * @client_name: Name of the client
+ * @client_handle: Handle for the client
  *
  */
 int afe_vote_lpass_core_hw(uint32_t hw_block_id, char *client_name,
@@ -8865,6 +8865,12 @@ int afe_vote_lpass_core_hw(uint32_t hw_block_id, char *client_name,
 		pr_err("%s: Invalid client_name\n", __func__);
 		*client_handle = 0;
 		return -EINVAL;
+	}
+
+	ret = afe_q6_interface_prepare();
+	if (ret != 0) {
+		pr_err("%s: Q6 interface prepare failed %d\n", __func__, ret);
+		return ret;
 	}
 
 	mutex_lock(&this_afe.afe_cmd_lock);
@@ -8931,8 +8937,8 @@ EXPORT_SYMBOL(afe_vote_lpass_core_hw);
  * afe_unvote_lpass_core_hw -
  *        unvoting for lpass core hardware
  *
- * @hw_block_id: id of the hardware block
- * @client_handle: client handle
+ * @hw_block_id: ID of hw block to vote for
+ * @client_handle: Handle for the client
  *
  */
 int afe_unvote_lpass_core_hw(uint32_t hw_block_id, uint32_t client_handle)
@@ -8941,6 +8947,12 @@ int afe_unvote_lpass_core_hw(uint32_t hw_block_id, uint32_t client_handle)
 	struct afe_cmd_remote_lpass_core_hw_devote_request *cmd_ptr =
 						&hw_vote_cfg;
 	int ret = 0;
+
+	ret = afe_q6_interface_prepare();
+	if (ret != 0) {
+		pr_err("%s: Q6 interface prepare failed %d\n", __func__, ret);
+		return ret;
+	}
 
 	mutex_lock(&this_afe.afe_cmd_lock);
 
@@ -8957,8 +8969,14 @@ int afe_unvote_lpass_core_hw(uint32_t hw_block_id, uint32_t client_handle)
 	cmd_ptr->hw_block_id = hw_block_id;
 	cmd_ptr->client_handle = client_handle;
 
-	pr_debug("%s: lpass core hw unvote opcode[0x%x] hw id[0x%x]\n",
+	pr_debug("%s: lpass core hw devote opcode[0x%x] hw id[0x%x]\n",
 		__func__, cmd_ptr->hdr.opcode, cmd_ptr->hw_block_id);
+
+	if (cmd_ptr->client_handle <= 0) {
+		pr_err("%s: invalid client handle\n", __func__);
+		ret = -EINVAL;
+		goto done;
+	}
 
 	atomic_set(&this_afe.status, 0);
 	atomic_set(&this_afe.state, 1);
