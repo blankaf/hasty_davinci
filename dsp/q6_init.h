@@ -24,8 +24,21 @@ int audio_cal_init(void);
 int core_init(void);
 int rtac_init(void);
 int msm_audio_ion_init(void);
-int audio_slimslave_init(void);
 int avtimer_init(void);
+#ifndef CONFIG_QTI_GVM
+int audio_slimslave_init(void);
+void audio_slimslave_exit(void);
+#else
+static inline int audio_slimslave_init(void)
+{
+	return 0;
+}
+
+static inline void audio_slimslave_exit(void)
+{
+	return;
+}
+#endif
 #ifdef CONFIG_MSM_MDF
 int msm_mdf_init(void);
 void msm_mdf_exit(void);
@@ -54,7 +67,6 @@ static inline void spk_params_exit(void)
 #endif
 
 void avtimer_exit(void);
-void audio_slimslave_exit(void);
 void msm_audio_ion_exit(void);
 void rtac_exit(void);
 void core_exit(void);
