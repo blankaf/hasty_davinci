@@ -686,6 +686,60 @@ static struct afe_clk_set mi2s_clk[MI2S_MAX] = {
 
 static struct mi2s_conf mi2s_intf_conf[MI2S_MAX];
 
+static int msm_island_vad_get_portid_from_beid(int32_t be_id, int *port_id)
+{
+	*port_id = 0xFFFF;
+
+	switch (be_id) {
+	case MSM_BACKEND_DAI_VA_CDC_DMA_TX_0:
+		*port_id = AFE_PORT_ID_VA_CODEC_DMA_TX_0;
+		break;
+	case MSM_BACKEND_DAI_QUINARY_MI2S_TX:
+		*port_id = AFE_PORT_ID_QUINARY_MI2S_TX;
+		break;
+	case MSM_BACKEND_DAI_QUIN_TDM_TX_0:
+		*port_id = AFE_PORT_ID_QUINARY_TDM_TX;
+		break;
+	case MSM_BACKEND_DAI_QUIN_AUXPCM_TX:
+		*port_id = AFE_PORT_ID_QUINARY_PCM_TX;
+		break;
+	default:
+		return -EINVAL;
+	}
+	return 0;
+}
+
+static int qcs405_send_island_vad_config(int32_t be_id)
+{
+	int rc = 0;
+	int port_id = 0xFFFF;
+
+	rc = msm_island_vad_get_portid_from_beid(be_id, &port_id);
+	if (rc) {
+		pr_debug("%s: Invalid island interface\n", __func__);
+	} else {
+		/*
+		 * send island mode config
+		 * This should be the first configuration
+		 */
+		rc = afe_send_port_island_mode(port_id);
+		if (rc) {
+			pr_err("%s: afe send island mode failed %d\n",
+				__func__, rc);
+			return rc;
+		}
+
+		rc = afe_send_port_vad_cfg_params(port_id);
+		if (rc) {
+			pr_err("%s: afe send vad config failed %d\n",
+				__func__, rc);
+			return rc;
+		}
+	}
+
+	return 0;
+}
+
 static int slim_get_sample_rate_val(int sample_rate)
 {
 	int sample_rate_val = 0;
@@ -4052,29 +4106,6 @@ static int msm_slim_get_ch_from_beid(int32_t be_id)
 	return ch_id;
 }
 
-static int msm_vad_get_portid_from_beid(int32_t be_id, int *port_id)
-{
-	*port_id = 0xFFFF;
-
-	switch (be_id) {
-	case MSM_BACKEND_DAI_VA_CDC_DMA_TX_0:
-		*port_id = AFE_PORT_ID_VA_CODEC_DMA_TX_0;
-		break;
-	case MSM_BACKEND_DAI_QUINARY_MI2S_TX:
-		*port_id = AFE_PORT_ID_QUINARY_MI2S_TX;
-		break;
-	case MSM_BACKEND_DAI_QUIN_TDM_TX_0:
-		*port_id = AFE_PORT_ID_QUINARY_TDM_TX;
-		break;
-	case MSM_BACKEND_DAI_QUIN_AUXPCM_TX:
-		*port_id = AFE_PORT_ID_QUINARY_PCM_TX;
-		break;
-	default:
-		return -EINVAL;
-	}
-	return 0;
-}
-
 static int msm_cdc_dma_get_idx_from_beid(int32_t be_id)
 {
 	int idx = 0;
@@ -5048,6 +5079,34 @@ err:
 	return ret;
 }
 
+static int msm_snd_auxpcm_startup(struct snd_pcm_substream *substream)
+{
+	int ret = 0;
+	struct snd_soc_pcm_runtime *rtd = substream->private_data;
+	struct snd_soc_dai_link *dai_link = rtd->dai_link;
+
+	ret = qcs405_send_island_vad_config(dai_link->id);
+	if (ret) {
+		pr_err("%s: send island/vad cfg failed, err = %d\n",
+		__func__, ret);
+	}
+	return ret;
+}
+
+static int msm_snd_cdc_dma_startup(struct snd_pcm_substream *substream)
+{
+	int ret = 0;
+	struct snd_soc_pcm_runtime *rtd = substream->private_data;
+	struct snd_soc_dai_link *dai_link = rtd->dai_link;
+
+	ret = qcs405_send_island_vad_config(dai_link->id);
+	if (ret) {
+		pr_err("%s: send island/vad cfg failed, err = %d\n",
+		__func__, ret);
+	}
+	return ret;
+}
+
 static int msm_snd_cdc_dma_hw_params(struct snd_pcm_substream *substream,
 			     struct snd_pcm_hw_params *params)
 {
@@ -5474,6 +5533,7 @@ static int qcs405_tdm_snd_startup(struct snd_pcm_substream *substream)
 	struct snd_soc_dai *cpu_dai = rtd->cpu_dai;
 	struct snd_soc_card *card = rtd->card;
 	struct msm_asoc_mach_data *pdata = snd_soc_card_get_drvdata(card);
+	struct snd_soc_dai_link *dai_link = rtd->dai_link;
 	u32 tdm_mode = msm_get_tdm_mode(cpu_dai->id);
 
 	if (tdm_mode >= TDM_INTERFACE_MAX) {
@@ -5516,6 +5576,13 @@ static int qcs405_tdm_snd_startup(struct snd_pcm_substream *substream)
 				return ret;
 			}
 		}
+	}
+
+	ret = qcs405_send_island_vad_config(dai_link->id);
+	if (ret) {
+		pr_err("%s: send island/vad cfg failed, err = %d\n",
+		__func__, ret);
+		return ret;
 	}
 
 	return ret;
@@ -5587,7 +5654,7 @@ static int msm_mi2s_snd_startup(struct snd_pcm_substream *substream)
 	int ret = 0;
 	struct snd_soc_pcm_runtime *rtd = substream->private_data;
 	struct snd_soc_dai *cpu_dai = rtd->cpu_dai;
-
+	struct snd_soc_dai_link *dai_link = rtd->dai_link;
 	int index = cpu_dai->id;
 	unsigned int fmt = SND_SOC_DAIFMT_CBS_CFS;
 	struct snd_soc_card *card = rtd->card;
@@ -5635,6 +5702,14 @@ static int msm_mi2s_snd_startup(struct snd_pcm_substream *substream)
 			msm_cdc_pinctrl_select_active_state(
 					pdata->mi2s_gpio_p[index]);
 	}
+
+	ret = qcs405_send_island_vad_config(dai_link->id);
+	if (ret) {
+		pr_err("%s: send island/vad cfg failed, err = %d\n",
+		__func__, ret);
+		return ret;
+	}
+
 clk_off:
 	if (ret < 0)
 		msm_mi2s_set_sclk(substream, false);
@@ -5810,7 +5885,11 @@ static struct snd_soc_ops msm_mi2s_be_ops = {
 	.shutdown = msm_mi2s_snd_shutdown,
 };
 
+static struct snd_soc_ops msm_auxpcm_be_ops = {
+	.startup = msm_snd_auxpcm_startup,
+};
 static struct snd_soc_ops msm_cdc_dma_be_ops = {
+	.startup = msm_snd_cdc_dma_startup,
 	.hw_params = msm_snd_cdc_dma_hw_params,
 };
 
@@ -7234,6 +7313,7 @@ static struct snd_soc_dai_link msm_auxpcm_be_dai_links[] = {
 		.dpcm_playback = 1,
 		.id = MSM_BACKEND_DAI_AUXPCM_RX,
 		.be_hw_params_fixup = msm_be_hw_params_fixup,
+		.ops = &msm_auxpcm_be_ops,
 		.ignore_pmdown_time = 1,
 		.ignore_suspend = 1,
 	},
@@ -7248,6 +7328,7 @@ static struct snd_soc_dai_link msm_auxpcm_be_dai_links[] = {
 		.dpcm_capture = 1,
 		.id = MSM_BACKEND_DAI_AUXPCM_TX,
 		.be_hw_params_fixup = msm_be_hw_params_fixup,
+		.ops = &msm_auxpcm_be_ops,
 		.ignore_suspend = 1,
 	},
 	/* Secondary AUX PCM Backend DAI Links */
@@ -7262,6 +7343,7 @@ static struct snd_soc_dai_link msm_auxpcm_be_dai_links[] = {
 		.dpcm_playback = 1,
 		.id = MSM_BACKEND_DAI_SEC_AUXPCM_RX,
 		.be_hw_params_fixup = msm_be_hw_params_fixup,
+		.ops = &msm_auxpcm_be_ops,
 		.ignore_pmdown_time = 1,
 		.ignore_suspend = 1,
 	},
@@ -7276,6 +7358,7 @@ static struct snd_soc_dai_link msm_auxpcm_be_dai_links[] = {
 		.dpcm_capture = 1,
 		.id = MSM_BACKEND_DAI_SEC_AUXPCM_TX,
 		.be_hw_params_fixup = msm_be_hw_params_fixup,
+		.ops = &msm_auxpcm_be_ops,
 		.ignore_suspend = 1,
 	},
 	/* Tertiary AUX PCM Backend DAI Links */
@@ -7290,6 +7373,7 @@ static struct snd_soc_dai_link msm_auxpcm_be_dai_links[] = {
 		.dpcm_playback = 1,
 		.id = MSM_BACKEND_DAI_TERT_AUXPCM_RX,
 		.be_hw_params_fixup = msm_be_hw_params_fixup,
+		.ops = &msm_auxpcm_be_ops,
 		.ignore_suspend = 1,
 	},
 	{
@@ -7303,6 +7387,7 @@ static struct snd_soc_dai_link msm_auxpcm_be_dai_links[] = {
 		.dpcm_capture = 1,
 		.id = MSM_BACKEND_DAI_TERT_AUXPCM_TX,
 		.be_hw_params_fixup = msm_be_hw_params_fixup,
+		.ops = &msm_auxpcm_be_ops,
 		.ignore_suspend = 1,
 	},
 	/* Quaternary AUX PCM Backend DAI Links */
@@ -7317,6 +7402,7 @@ static struct snd_soc_dai_link msm_auxpcm_be_dai_links[] = {
 		.dpcm_playback = 1,
 		.id = MSM_BACKEND_DAI_QUAT_AUXPCM_RX,
 		.be_hw_params_fixup = msm_be_hw_params_fixup,
+		.ops = &msm_auxpcm_be_ops,
 		.ignore_pmdown_time = 1,
 		.ignore_suspend = 1,
 	},
@@ -7331,6 +7417,7 @@ static struct snd_soc_dai_link msm_auxpcm_be_dai_links[] = {
 		.dpcm_capture = 1,
 		.id = MSM_BACKEND_DAI_QUAT_AUXPCM_TX,
 		.be_hw_params_fixup = msm_be_hw_params_fixup,
+		.ops = &msm_auxpcm_be_ops,
 		.ignore_suspend = 1,
 	},
 	/* Quinary AUX PCM Backend DAI Links */
@@ -7345,6 +7432,7 @@ static struct snd_soc_dai_link msm_auxpcm_be_dai_links[] = {
 		.dpcm_playback = 1,
 		.id = MSM_BACKEND_DAI_QUIN_AUXPCM_RX,
 		.be_hw_params_fixup = msm_be_hw_params_fixup,
+		.ops = &msm_auxpcm_be_ops,
 		.ignore_pmdown_time = 1,
 		.ignore_suspend = 1,
 	},
@@ -7359,6 +7447,7 @@ static struct snd_soc_dai_link msm_auxpcm_be_dai_links[] = {
 		.dpcm_capture = 1,
 		.id = MSM_BACKEND_DAI_QUIN_AUXPCM_TX,
 		.be_hw_params_fixup = msm_be_hw_params_fixup,
+		.ops = &msm_auxpcm_be_ops,
 		.ignore_suspend = 1,
 	},
 };
@@ -7569,7 +7658,7 @@ static int msm_snd_vad_cfg_put(struct snd_kcontrol *kcontrol,
 	pr_debug("%s: vad_enable=%d preroll_config=%d vad_intf=%d\n", __func__,
 		 vad_enable, preroll_config, vad_intf);
 
-	ret = msm_vad_get_portid_from_beid(vad_intf, &port_id);
+	ret = msm_island_vad_get_portid_from_beid(vad_intf, &port_id);
 	if (ret) {
 		pr_err("%s: Invalid vad interface\n", __func__);
 		goto done;
