@@ -184,11 +184,12 @@ static void populate_codec_list(struct msm_transcode_loopback *trans,
 
 	if (cstream->direction == SND_COMPRESS_CAPTURE) {
 		compr_cap.direction = SND_COMPRESS_CAPTURE;
-		compr_cap.num_codecs = 4;
+		compr_cap.num_codecs = 5;
 		compr_cap.codecs[0] = SND_AUDIOCODEC_PCM;
 		compr_cap.codecs[1] = SND_AUDIOCODEC_AC3;
 		compr_cap.codecs[2] = SND_AUDIOCODEC_EAC3;
 		compr_cap.codecs[3] = SND_AUDIOCODEC_TRUEHD;
+		compr_cap.codecs[4] = SND_AUDIOCODEC_MAT;
 		memcpy(&trans->source_compr_cap, &compr_cap,
 				sizeof(struct snd_compr_caps));
 	}
@@ -477,6 +478,11 @@ static int msm_transcode_loopback_set_params(struct snd_compr_stream *cstream,
 			pr_debug("Source SND_AUDIOCODEC_TRUEHD\n");
 			trans->source.codec_format =
 				FORMAT_TRUEHD;
+			break;
+		case SND_AUDIOCODEC_MAT:
+			pr_err("Source SND_AUDIOCODEC_MAT\n");
+			trans->source.codec_format =
+				FORMAT_MAT;
 			break;
 		default:
 			pr_debug("%s: unknown source codec\n", __func__);
