@@ -11184,6 +11184,7 @@ static struct platform_driver tavil_codec_driver = {
 #ifdef CONFIG_PM
 		.pm = &tavil_pm_ops,
 #endif
+		.suppress_bind_attrs = true,
 	},
 };
 
