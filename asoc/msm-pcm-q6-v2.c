@@ -37,6 +37,7 @@
 #include <dsp/q6audio-v2.h>
 #include <dsp/q6core.h>
 #include <dsp/q6asm-v2.h>
+#include <dsp/q6adm-v2.h>
 
 #include "msm-pcm-q6-v2.h"
 #include "msm-pcm-routing-v2.h"
@@ -325,7 +326,8 @@ static int msm_pcm_playback_prepare(struct snd_pcm_substream *substream)
 	struct msm_audio *prtd = runtime->private_data;
 	struct msm_plat_data *pdata;
 	struct snd_pcm_hw_params *params;
-	int ret;
+	int ret, port_id, copp_idx;
+	bool tmp = false;
 	uint32_t fmt_type = FORMAT_LINEAR_PCM;
 	uint16_t bits_per_sample;
 	uint16_t sample_word_size;
@@ -430,6 +432,11 @@ static int msm_pcm_playback_prepare(struct snd_pcm_substream *substream)
 		pr_err("%s: stream reg failed ret:%d\n", __func__, ret);
 		return ret;
 	}
+	tmp = msm_pcm_routing_get_portid_copp_idx(soc_prtd->dai_link->id,
+				SESSION_TYPE_RX, &port_id, &copp_idx);
+	if (tmp)
+		q6adm_update_rtd_info(soc_prtd, port_id, copp_idx,
+					soc_prtd->dai_link->id, 1);
 	if (prtd->compress_enable) {
 		ret = q6asm_media_format_block_gen_compr(
 			prtd->audio_client, runtime->rate,
@@ -756,8 +763,10 @@ static int msm_pcm_open(struct snd_pcm_substream *substream)
 	prtd->reset_event = false;
 	runtime->private_data = prtd;
 
-	if (substream->stream == SNDRV_PCM_STREAM_PLAYBACK)
+	if (substream->stream == SNDRV_PCM_STREAM_PLAYBACK) {
 		msm_adsp_init_mixer_ctl_pp_event_queue(soc_prtd);
+		msm_adsp_init_mixer_ctl_adm_pp_event_queue(soc_prtd);
+	}
 
 	/* Vote to update the Rx thread priority to RT Thread for playback */
 	if ((substream->stream == SNDRV_PCM_STREAM_PLAYBACK) &&
@@ -871,8 +880,9 @@ static int msm_pcm_playback_close(struct snd_pcm_substream *substream)
 	struct msm_audio *prtd = runtime->private_data;
 	struct msm_plat_data *pdata;
 	uint32_t timeout;
-	int dir = 0;
+	int dir = 0, port_id, copp_idx;
 	int ret = 0;
+	bool tmp = false;
 
 	pr_debug("%s: cmd_pending 0x%lx\n", __func__, prtd->cmd_pending);
 
@@ -913,9 +923,15 @@ static int msm_pcm_playback_close(struct snd_pcm_substream *substream)
 					prtd->audio_client);
 		q6asm_audio_client_free(prtd->audio_client);
 	}
+	tmp = msm_pcm_routing_get_portid_copp_idx(soc_prtd->dai_link->id,
+				SESSION_TYPE_RX, &port_id, &copp_idx);
+	if (tmp)
+		q6adm_update_rtd_info(soc_prtd, port_id, copp_idx,
+					soc_prtd->dai_link->id, 0);
 	msm_pcm_routing_dereg_phy_stream(soc_prtd->dai_link->id,
 						SNDRV_PCM_STREAM_PLAYBACK);
 	msm_adsp_clean_mixer_ctl_pp_event_queue(soc_prtd);
+	msm_adsp_clean_mixer_ctl_adm_pp_event_queue(soc_prtd);
 	kfree(prtd);
 	runtime->private_data = NULL;
 

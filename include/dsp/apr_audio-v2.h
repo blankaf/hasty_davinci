@@ -33,6 +33,11 @@ struct param_outband {
 /* Instance ID definitions */
 #define INSTANCE_ID_0 0x0000
 
+struct adm_register_event {
+	struct apr_hdr	hdr;
+	__u8 payload[0];
+} __packed;
+
 struct mem_mapping_hdr {
 	/*
 	 * LSW of parameter data payload address. Supported values: any.
@@ -138,6 +143,10 @@ struct module_instance_info {
 
 #define ADM_CMD_MATRIX_MAP_ROUTINGS_V5 0x00010325
 #define ADM_CMD_STREAM_DEVICE_MAP_ROUTINGS_V5 0x0001033D
+
+#define ADM_CMD_REGISTER_EVENT  0x00010365
+#define ADM_PP_EVENT            0x00010366
+
 /* Enumeration for an audio Rx matrix ID.*/
 #define ADM_MATRIX_ID_AUDIO_RX              0
 
@@ -671,6 +680,27 @@ struct dsp_stream_callback_prtd {
 	struct list_head event_queue;
 	spinlock_t prtd_spin_lock;
 };
+
+#define DSP_ADM_CALLBACK "ADSP COPP Callback Event"
+#define DSP_ADM_CALLBACK_QUEUE_SIZE 1024
+
+struct dsp_adm_callback_list {
+	struct list_head list;
+	struct msm_adsp_event_data event;
+};
+
+struct adm_usr_info {
+	u32 service_id;
+	u32 reserved;
+	u32 token_coppidx;
+};
+
+struct dsp_adm_callback_prtd {
+	uint16_t event_count;
+	struct list_head event_queue;
+	spinlock_t prtd_spin_lock;
+};
+
 
 /* set customized mixing on matrix mixer */
 #define ADM_CMD_SET_PSPD_MTMX_STRTR_PARAMS_V5                        0x00010344
@@ -8102,6 +8132,30 @@ struct avs_rtic_shared_mem_addr {
 	struct avs_shared_map_region_payload map_region;
 	/* memory map region*/
 } __packed;
+
+struct adm_event_shm {
+	u32                 shm_buf_addr_lsw;
+	/* Lower 32 bit of the RTIC shared memory */
+
+	u32                 shm_buf_addr_msw;
+	/* Upper 32 bit of the RTIC shared memory */
+
+	u32                 buf_size;
+	/* Size of buffer */
+
+	u16                 shm_buf_mem_pool_id;
+	/* ADSP_MEMORY_MAP_SHMEM8_4K_POOL */
+
+	u16                 shm_buf_num_regions;
+	/* number of regions to map */
+
+	u32                 shm_buf_flag;
+	/* buffer property flag */
+
+	struct avs_shared_map_region_payload adm_map_region;
+	/* memory map region*/
+
+};
 
 #define AVS_PARAM_ID_RTIC_EVENT_ACK           0x00013238
 

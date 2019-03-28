@@ -346,6 +346,7 @@ int afe_set_display_stream(u16 rx_port_id, u32 stream_idx, u32 ctl_idx);
 int afe_loopback_gain(u16 port_id, u16 volume);
 int afe_validate_port(u16 port_id);
 int afe_get_port_index(u16 port_id);
+int afe_get_port_id(u16 port_idx);
 int afe_get_topology(int port_id);
 int afe_start_pseudo_port(u16 port_id);
 int afe_stop_pseudo_port(u16 port_id);
