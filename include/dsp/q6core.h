@@ -29,6 +29,7 @@ bool q6core_is_adsp_ready(void);
 int q6core_get_unlock_key(int id, int *key, dma_addr_t *paddr, size_t *plen);
 int q6core_add_remove_pool_pages(phys_addr_t buf_add, uint32_t bufsz,
 			uint32_t mempool_id, bool add_pages);
+int avcs_core_query_timer_offset(int64_t *av_offset, int32_t clock_id);
 int q6core_get_service_version(uint32_t service_id,
 			       struct avcs_fwk_ver_info *ver_info,
 			       size_t size);
