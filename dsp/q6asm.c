@@ -3564,6 +3564,12 @@ static int __q6asm_open_write(struct audio_client *ac, uint32_t format,
 	case FORMAT_GEN_COMPR:
 		open.dec_fmt_id = ASM_MEDIA_FMT_GENERIC_COMPRESSED;
 		break;
+	case FORMAT_TRUEHD:
+		open.dec_fmt_id = ASM_MEDIA_FMT_TRUEHD;
+		break;
+	case FORMAT_MAT:
+		open.dec_fmt_id = ASM_MEDIA_FMT_MAT;
+		break;
 	default:
 		pr_err("%s: Invalid format 0x%x\n", __func__, format);
 		rc = -EINVAL;
@@ -8122,6 +8128,76 @@ int q6asm_ds1_set_stream_endp_params(struct audio_client *ac,
 					   stream_id);
 }
 EXPORT_SYMBOL(q6asm_ds1_set_stream_endp_params);
+
+static int __q6asm_thd_set_endp_params(struct audio_client *ac, int param_id,
+                                       int param_value, int stream_id) {
+	struct asm_dec_dolby_thd_endp_param_v2 dthd_cfg;
+	int rc = 0;
+
+	pr_debug("%s: session[%d] stream[%d],param_id[%d]param_value[%d]",
+		 __func__, ac->session, stream_id, param_id, param_value);
+
+	memset(&dthd_cfg, 0, sizeof(dthd_cfg));
+	q6asm_stream_add_hdr(ac, &dthd_cfg.hdr, sizeof(dthd_cfg), TRUE,
+			     stream_id);
+	atomic_set(&ac->cmd_state, -1);
+	/*
+	 * Updated the token field with stream/session for compressed playback
+	 * Platform driver must know the stream with which the command is
+	 * associated
+	 */
+
+	if (ac->io_mode & COMPRESSED_STREAM_IO) {
+		q6asm_update_token(&dthd_cfg.hdr.token,
+				   ac->session,
+				   stream_id,
+				   0, /* Buffer index is NA */
+				   0, /* Direction flag is NA */
+				   WAIT_CMD);
+	}
+	dthd_cfg.hdr.opcode = ASM_STREAM_CMD_SET_ENCDEC_PARAM;
+	dthd_cfg.encdec.param_id = param_id;
+	dthd_cfg.encdec.param_size = sizeof(struct asm_dec_dolby_thd_endp_param_v2) -
+				(sizeof(struct apr_hdr) +
+				sizeof(struct asm_stream_cmd_set_encdec_param));
+	dthd_cfg.endp_param_value = param_value;
+	rc = apr_send_pkt(ac->apr, (uint32_t *) &dthd_cfg);
+
+	if (rc < 0) {
+		pr_err("%s: Command opcode[0x%x] failed %d\n",
+			__func__, ASM_STREAM_CMD_SET_ENCDEC_PARAM, rc);
+		goto fail_cmd;
+	}
+	rc = wait_event_timeout(ac->cmd_wait,
+		(atomic_read(&ac->cmd_state) >= 0), 5*HZ);
+
+	if (!rc) {
+		pr_err("%s: timeout opcode[0x%x]\n", __func__,
+			dthd_cfg.hdr.opcode);
+		rc = -ETIMEDOUT;
+		goto fail_cmd;
+	}
+
+	if (atomic_read(&ac->cmd_state) > 0) {
+		pr_err("%s: DSP returned error[%s]\n",
+				__func__, adsp_err_get_err_str(
+				atomic_read(&ac->cmd_state)));
+		rc = adsp_err_get_lnx_err_code(
+				atomic_read(&ac->cmd_state));
+		goto fail_cmd;
+	}
+	return 0;
+fail_cmd:
+	return rc;
+}
+
+int q6asm_thd_stream_endp_params(struct audio_client *ac,
+				     int param_id, int param_value,
+				     int stream_id) {
+	return __q6asm_thd_set_endp_params(ac, param_id, param_value,
+					   stream_id);
+}
+EXPORT_SYMBOL(q6asm_thd_stream_endp_params);
 
 /**
  * q6asm_memory_map -

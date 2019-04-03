@@ -5904,6 +5904,14 @@ struct asm_dec_ddp_endp_param_v2 {
 	int endp_param_value;
 } __packed;
 
+/* @brief Dolby TrueHD end point configuration structure
+ */
+struct asm_dec_dolby_thd_endp_param_v2 {
+	struct apr_hdr hdr;
+	struct asm_stream_cmd_set_encdec_param  encdec;
+	int endp_param_value;
+} __packed;
+
 /*
  * Payload of the multichannel PCM encoder configuration parameters in
  * the ASM_MEDIA_FMT_MULTI_CHANNEL_PCM_V5 media format.
@@ -11466,7 +11474,7 @@ struct afe_clk_set {
 	 * for enable and disable clock.
 	 *	"clk_freq_in_hz", "clk_attri", and "clk_root"
 	 *	are ignored in disable clock case.
-	 *	@values 
+	 *	@values
 	 *	- 0 -- Disabled
 	 *	- 1 -- Enabled  @tablebulletend
 	 */
