@@ -2449,6 +2449,10 @@ static int32_t q6asm_callback(struct apr_client_data *data, void *priv)
 				((uint32_t *)pp_event_package->payload)[0] =
 					SND_AUDIOCODEC_TRUEHD;
 				break;
+			case ASM_MEDIA_FMT_MAT:
+				((uint32_t *)pp_event_package->payload)[0] =
+					SND_AUDIOCODEC_MAT;
+				break;
 			case ASM_MEDIA_FMT_AAC_V2:
 				((uint32_t *)pp_event_package->payload)[0] =
 					SND_AUDIOCODEC_AAC;
@@ -3379,6 +3383,9 @@ int q6asm_open_write_compressed(struct audio_client *ac, uint32_t format,
 	case FORMAT_TRUEHD:
 		open.fmt_id = ASM_MEDIA_FMT_TRUEHD;
 		break;
+	case FORMAT_MAT:
+		open.fmt_id = ASM_MEDIA_FMT_MAT;
+		break;
 	case FORMAT_IEC61937:
 		open.fmt_id = ASM_MEDIA_FMT_IEC;
 		break;
@@ -4112,6 +4119,12 @@ int q6asm_open_transcode_loopback(struct audio_client *ac,
 		break;
 	case FORMAT_EAC3:
 		open.src_format_id = ASM_MEDIA_FMT_EAC3;
+		break;
+	case FORMAT_MAT:
+		open.src_format_id = ASM_MEDIA_FMT_MAT;
+		break;
+	case FORMAT_TRUEHD:
+		open.src_format_id = ASM_MEDIA_FMT_TRUEHD;
 		break;
 	default:
 		pr_err("%s: Unsupported src fmt [%d]\n",
