@@ -77,6 +77,45 @@ struct msm_audio_alloc_data {
 
 static struct msm_audio_ion_private msm_audio_ion_data = {0,};
 
+static void *msm_audio_ion_map_kernel(void *handle)
+{
+	int rc = 0;
+	void *addr = NULL;
+	struct msm_audio_alloc_data *alloc_data = NULL;
+
+	rc = dma_buf_begin_cpu_access((struct dma_buf *)handle,
+				      DMA_BIDIRECTIONAL);
+	if (rc) {
+		pr_err("%s: kmap dma_buf_begin_cpu_access fail\n", __func__);
+		goto exit;
+	}
+
+	addr = dma_buf_vmap((struct dma_buf *)handle);
+
+	if (!addr) {
+		pr_err("%s: kernel mapping of dma_buf failed\n",
+		       __func__);
+		goto exit;
+	}
+
+	/*
+	 * TBD: remove the below section once new API
+	 * for mapping kernel virtual address is available.
+	 */
+	mutex_lock(&(msm_audio_ion_data.list_mutex));
+	list_for_each_entry(alloc_data, &(msm_audio_ion_data.alloc_list),
+			    list) {
+		if (alloc_data->handle == handle) {
+			alloc_data->vaddr = addr;
+			break;
+		}
+	}
+	mutex_unlock(&(msm_audio_ion_data.list_mutex));
+
+exit:
+	return addr;
+}
+
 static void msm_audio_ion_add_allocation(
 	struct msm_audio_ion_private *msm_audio_ion_data,
 	struct msm_audio_alloc_data *alloc_data)
@@ -123,6 +162,7 @@ static int msm_audio_ion_dma_buf_map(struct dma_buf *dma_buf,
 	struct device *cb_dev;
 	unsigned long ionflag = 0;
 	int rc = 0;
+	void *vaddr = NULL;
 
 	cb_dev = msm_audio_ion_data.cb_dev;
 
@@ -176,6 +216,15 @@ static int msm_audio_ion_dma_buf_map(struct dma_buf *dma_buf,
 	/* physical address from mapping */
 	if (!is_iova) {
 		*addr = sg_phys(alloc_data->table->sgl);
+		alloc_data->paddr = addr;
+		vaddr = msm_audio_ion_map_kernel((void *)dma_buf);
+		if (IS_ERR_OR_NULL(vaddr)) {
+			pr_err("%s: ION memory mapping for AUDIO failed\n",
+				__func__);
+			rc = -ENOMEM;
+			goto detach_dma_buf;
+		}
+		alloc_data->vaddr = vaddr;
 	} else {
 		*addr = MSM_AUDIO_ION_PHYS_ADDR(alloc_data);
 		alloc_data->paddr = addr;
@@ -376,44 +425,6 @@ int msm_audio_ion_get_smmu_info(struct device **cb_dev,
 	return 0;
 }
 
-static void *msm_audio_ion_map_kernel(void *handle)
-{
-	int rc = 0;
-	void *addr = NULL;
-	struct msm_audio_alloc_data *alloc_data = NULL;
-
-	rc = dma_buf_begin_cpu_access((struct dma_buf*)handle,
-				      DMA_BIDIRECTIONAL);
-	if (rc) {
-		pr_err("%s: kmap dma_buf_begin_cpu_access fail\n", __func__);
-		goto exit;
-	}
-
-	addr = dma_buf_vmap((struct dma_buf*)handle);
-	if (!addr) {
-		pr_err("%s: kernel mapping of dma_buf failed\n",
-		       __func__);
-		goto exit;
-	}
-
-	/*
-	 * TBD: remove the below section once new API
-	 * for mapping kernel virtual address is available.
-	 */
-	mutex_lock(&(msm_audio_ion_data.list_mutex));
-	list_for_each_entry(alloc_data, &(msm_audio_ion_data.alloc_list),
-			    list) {
-		if (alloc_data->handle == handle) {
-			alloc_data->vaddr = addr;
-			break;
-		}
-	}
-	mutex_unlock(&(msm_audio_ion_data.list_mutex));
-
-exit:
-	return addr;
-}
-
 static int msm_audio_ion_map_buf(void *handle, dma_addr_t *paddr,
 				 size_t *plen, void **vaddr)
 {
@@ -566,9 +577,7 @@ int msm_audio_ion_phys_free(void *handle,
 {
 	int ret;
 	struct scm_desc desc;
-	struct {
-		uint8_t skey;
-	} routargs;
+	uint8_t skey = 0;
 
 	memset(&desc, 0, sizeof(desc));
 
@@ -591,11 +600,11 @@ int msm_audio_ion_phys_free(void *handle,
 	}
 
 	if (msm_audio_ion_data.is_non_hypervisor) {
-		routargs.skey = (uint8_t)key;
+		skey = (uint8_t)key;
 		desc.args[0] = id;
 		desc.args[1] = *paddr;
 		desc.args[2] = *pa_len;
-		desc.args[3] = routargs.skey;
+		desc.args[3] = skey;
 		desc.arginfo = SCM_ARGS(4);
 		ret = scm_call2(SCM_SIP_FNID(SCM_SVC_PIL,
 				TZ_PIL_CLEAR_PROTECT_MEM_SUBSYS_ID), &desc);
@@ -655,6 +664,13 @@ int msm_audio_ion_phys_assign(void **handle, int fd,
 				TZ_PIL_PROTECT_MEM_SUBSYS_ID), &desc);
 	} else {
 		ret = msm_audio_hyp_assign(paddr, pa_len, assign_type);
+	}
+
+	if (ret) {
+		pr_err("%s: fail to hyp assign memory, ret = %d\n",
+				__func__, ret);
+		msm_audio_ion_free(handle);
+		goto err_ion;
 	}
 	return ret;
 
