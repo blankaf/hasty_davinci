@@ -677,7 +677,7 @@ static int msm_pcm_open(struct snd_pcm_substream *substream)
 	struct snd_soc_pcm_runtime *soc_prtd = substream->private_data;
 	struct msm_audio *prtd;
 	struct msm_plat_data *pdata;
-	enum apr_subsys_state q6_state;
+	enum apr_subsys_state subsys_state;
 	int ret = 0;
 
 	pdata = (struct msm_plat_data *)
@@ -687,8 +687,8 @@ static int msm_pcm_open(struct snd_pcm_substream *substream)
 		return -EINVAL;
 	}
 
-	q6_state = apr_get_q6_state();
-	if (q6_state == APR_SUBSYS_DOWN) {
+	subsys_state = apr_get_subsys_state();
+	if (subsys_state == APR_SUBSYS_DOWN) {
 		pr_debug("%s: adsp is down\n", __func__);
 		return -ENETRESET;
 	}
