@@ -825,7 +825,7 @@ static int msm_map_adsp_lib_ion_fd(int fd, int id)
 {
 	dma_addr_t paddr;
 	size_t pa_len = 0;
-	int ret = 0, sec_key;
+	int ret = 0, sec_key = 0;
 
 	ret = msm_audio_ion_phys_assign(&adsp_ion_info.mem_hdl_lib_ion, fd,
 					&paddr, &pa_len, HLOS_TO_ADSP, id);
@@ -866,7 +866,7 @@ static int msm_unmap_adsp_lib_ion_fd(int id)
 	dma_addr_t paddr;
 	size_t pa_len = 0;
 	int ret = 0;
-	int sec_key;
+	int sec_key = 0;
 
 	if (!adsp_ion_info.mem_hdl_lib_ion) {
 		pr_err("%s: ion_client NULL\n", __func__);
@@ -905,7 +905,7 @@ int msm_audio_ion_shm_phyfree(int id)
 	dma_addr_t paddr;
 	size_t pa_len = 0;
 	int ret = 0;
-	int sec_key;
+	int sec_key = 0;
 
 	if (!adsp_ion_info.mem_hdl_shmpp) {
 		pr_err("%s: ion_client NULL\n", __func__);

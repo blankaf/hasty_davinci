@@ -324,7 +324,7 @@ static int msm_transcode_loopback_free(struct snd_compr_stream *cstream)
 	struct msm_transcode_loopback *trans = runtime->private_data;
 	struct snd_soc_pcm_runtime *rtd = snd_pcm_substream_chip(cstream);
 	struct trans_loopback_pdata *pdata;
-	int ret = 0, sec_key;
+	int ret = 0, sec_key = 0;
 	dma_addr_t paddr;
 	size_t pa_len = 0;
 
