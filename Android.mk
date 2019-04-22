@@ -3,7 +3,7 @@ MY_LOCAL_PATH := $(call my-dir)
 
 UAPI_OUT := $(PRODUCT_OUT)/obj/vendor/qcom/opensource/audio-kernel/include
 
-ifeq ($(call is-board-platform-in-list,msm8953 sdm845 sdm670 qcs605 msmnile $(MSMSTEPPE) $(TRINKET)),true)
+ifeq ($(call is-board-platform-in-list,msm8953 sdm845 sdm670 qcs605 msmnile $(MSMSTEPPE) atoll $(TRINKET)),true)
 $(shell mkdir -p $(UAPI_OUT)/linux;)
 $(shell mkdir -p $(UAPI_OUT)/sound;)
 $(shell rm -rf $(PRODUCT_OUT)/obj/vendor/qcom/opensource/audio-kernel/ipc/Module.symvers)
@@ -37,7 +37,7 @@ include $(MY_LOCAL_PATH)/asoc/codecs/aqt1000/Android.mk
 endif
 endif
 
-ifeq ($(call is-board-platform-in-list,$(MSMSTEPPE) $(TRINKET)),true)
+ifeq ($(call is-board-platform-in-list,$(MSMSTEPPE) atoll $(TRINKET)),true)
 ifneq ($(TARGET_PRODUCT), $(filter $(TARGET_PRODUCT), sm6150_au))
 $(shell rm -rf $(PRODUCT_OUT)/obj/vendor/qcom/opensource/audio-kernel/asoc/codecs/bolero/Module.symvers)
 include $(MY_LOCAL_PATH)/asoc/codecs/bolero/Android.mk
