@@ -92,8 +92,6 @@ static uint32_t adm_pp_reg_event_opcode[] = {
 	ADM_CMD_REGISTER_EVENT
 };
 
-static void *kctl_pvt_data;
-
 struct msm_adsp_ion_info {
 	int32_t adsp_lib_ion_fd;
 	int32_t adsp_shmpp_ion_fd[MSM_BACKEND_DAI_MAX][MAX_COPPS_PER_PORT]
@@ -24489,11 +24487,9 @@ static int msm_routing_get_copp_callback_event(struct snd_kcontrol *kcontrol,
 	kctl_prtd = (struct dsp_adm_callback_prtd *)
 				kcontrol->private_data;
 
-	if (kctl_prtd == NULL ||
-		(kctl_prtd == kctl_pvt_data)) {
+	if (kctl_prtd == NULL) {
 		pr_err("%s: ADM PP event queue is not initialized.\n",
 				__func__);
-		kcontrol->private_data = NULL;
 		ret = -EINVAL;
 		goto done;
 	}
@@ -25123,6 +25119,8 @@ static const struct snd_pcm_ops msm_routing_pcm_ops = {
 /* Not used but frame seems to require it */
 static int msm_routing_probe(struct snd_soc_platform *platform)
 {
+	struct snd_kcontrol *kctl = NULL;
+
 	snd_soc_dapm_new_controls(&platform->component.dapm, msm_qdsp6_widgets,
 			   ARRAY_SIZE(msm_qdsp6_widgets));
 	snd_soc_dapm_add_routes(&platform->component.dapm, intercon,
@@ -25203,9 +25201,18 @@ static int msm_routing_probe(struct snd_soc_platform *platform)
 				      ARRAY_SIZE(rtic_event_ack_controls));
 	snd_soc_add_platform_controls(platform, copp_callback_event_controls,
 				      ARRAY_SIZE(copp_callback_event_controls));
-	kctl_pvt_data = &platform->component;
 	snd_soc_add_platform_controls(platform, adsp_lib_ion_controls,
 				      ARRAY_SIZE(adsp_lib_ion_controls));
+	kctl = snd_soc_card_get_kcontrol(platform->component.dapm.card,
+				"ADSP COPP Callback Event");
+
+	if (!kctl) {
+		pr_err("%s: failed to get kctl %s.\n", __func__,
+				"ADSP COPP Callback Event");
+		return -EINVAL;
+	}
+	kctl->private_data = NULL;
+
 	return 0;
 }
 
