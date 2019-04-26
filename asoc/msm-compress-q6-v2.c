@@ -1651,7 +1651,7 @@ static int msm_compr_playback_open(struct snd_compr_stream *cstream)
 	struct msm_compr_audio *prtd = NULL;
 	struct msm_compr_pdata *pdata =
 			snd_soc_platform_get_drvdata(rtd->platform);
-	enum apr_subsys_state q6_state;
+	enum apr_subsys_state subsys_state;
 
 	pr_debug("%s\n", __func__);
 	if (pdata->is_in_use[rtd->dai_link->id] == true) {
@@ -1660,8 +1660,8 @@ static int msm_compr_playback_open(struct snd_compr_stream *cstream)
 		return -EBUSY;
 	}
 
-	q6_state = apr_get_q6_state();
-	if (q6_state == APR_SUBSYS_DOWN) {
+	subsys_state = apr_get_subsys_state();
+	if (subsys_state == APR_SUBSYS_DOWN) {
 		pr_debug("%s: adsp is down\n", __func__);
 		return -ENETRESET;
 	}
@@ -1761,12 +1761,12 @@ static int msm_compr_capture_open(struct snd_compr_stream *cstream)
 	struct msm_compr_audio *prtd;
 	struct msm_compr_pdata *pdata =
 			snd_soc_platform_get_drvdata(rtd->platform);
-	enum apr_subsys_state q6_state;
+	enum apr_subsys_state subsys_state;
 
 	pr_debug("%s\n", __func__);
 
-	q6_state = apr_get_q6_state();
-	if (q6_state == APR_SUBSYS_DOWN) {
+	subsys_state = apr_get_subsys_state();
+	if (subsys_state == APR_SUBSYS_DOWN) {
 		pr_debug("%s: adsp is down\n", __func__);
 		return -ENETRESET;
 	}
