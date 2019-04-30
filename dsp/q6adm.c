@@ -182,6 +182,8 @@ int q6adm_send_event_register_cmd(int port_id, int copp_idx, u8 *data,
 	sz = sizeof(struct apr_hdr) + param_size;
 	adm_reg_params = kzalloc(sz, GFP_KERNEL);
 
+	if (!adm_reg_params)
+		return -ENOMEM;
 
 	memcpy(adm_reg_params->payload, data, param_size);
 
@@ -1628,6 +1630,7 @@ static int32_t adm_callback(struct apr_client_data *data, void *priv)
 		return -EINVAL;
 	}
 
+	memset(&usr_data, 0, sizeof(usr_data));
 	payload = data->payload;
 
 	if (data->opcode == RESET_EVENTS) {

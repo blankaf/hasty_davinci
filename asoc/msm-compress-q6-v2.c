@@ -1839,7 +1839,8 @@ static int msm_compr_playback_free(struct snd_compr_stream *cstream)
 	struct snd_soc_pcm_runtime *soc_prtd;
 	struct msm_compr_pdata *pdata;
 	struct audio_client *ac;
-	int dir = IN, ret = 0, stream_id, sec_key, port_id, copp_idx;
+	int dir = IN, ret = 0, stream_id, sec_key = 0, port_id = 0;
+	int copp_idx = 0;
 	bool tmp = false;
 	unsigned long flags;
 	uint32_t stream_index;
