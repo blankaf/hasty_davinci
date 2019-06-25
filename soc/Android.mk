@@ -11,7 +11,7 @@ ifeq ($(call is-board-platform-in-list,msm8953 sdm670 qcs605),true)
 AUDIO_SELECT  := CONFIG_SND_SOC_SDM670=m
 endif
 
-ifeq ($(call is-board-platform,msmnile),true)
+ifeq ($(call is-board-platform-in-list,sdmshrike msmnile),true)
 ifeq ($(TARGET_BOARD_AUTO),true)
 AUDIO_SELECT  := CONFIG_SND_SOC_SA8155=m
 else
@@ -29,7 +29,7 @@ endif
 
 AUDIO_CHIPSET := audio
 # Build/Package only in case of supported target
-ifeq ($(call is-board-platform-in-list,msm8953 sdm845 sdm670 qcs605 msmnile $(MSMSTEPPE) $(TRINKET) atoll),true)
+ifeq ($(call is-board-platform-in-list,msm8953 sdm845 sdm670 qcs605 sdmshrike msmnile $(MSMSTEPPE) $(TRINKET) atoll),true)
 
 LOCAL_PATH := $(call my-dir)
 
@@ -94,7 +94,7 @@ LOCAL_MODULE_PATH         := $(KERNEL_MODULES_OUT)
 include $(DLKM_DIR)/AndroidKernelModule.mk
 endif
 ###########################################################
-ifeq ($(call is-board-platform-in-list,msmnile atoll $(MSMSTEPPE) $(TRINKET)),true)
+ifeq ($(call is-board-platform-in-list,sdmshrike msmnile atoll $(MSMSTEPPE) $(TRINKET)),true)
 ifneq ($(TARGET_PRODUCT), $(filter $(TARGET_PRODUCT), msmnile))
 include $(CLEAR_VARS)
 LOCAL_MODULE              := $(AUDIO_CHIPSET)_snd_event.ko

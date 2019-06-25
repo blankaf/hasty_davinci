@@ -11,7 +11,7 @@ ifeq ($(call is-board-platform-in-list,msm8953 sdm670 qcs605),true)
 AUDIO_SELECT  := CONFIG_SND_SOC_SDM670=m
 endif
 
-ifeq ($(call is-board-platform,msmnile),true)
+ifeq ($(call is-board-platform-in-list,sdmshrike msmnile),true)
 AUDIO_SELECT  := CONFIG_SND_SOC_SM8150=m
 endif
 
@@ -21,7 +21,7 @@ endif
 
 AUDIO_CHIPSET := audio
 # Build/Package only in case of supported target
-ifeq ($(call is-board-platform-in-list,msm8953 sdm845 sdm670 qcs605 msmnile $(MSMSTEPPE) atoll $(TRINKET)),true)
+ifeq ($(call is-board-platform-in-list,msm8953 sdm845 sdm670 qcs605 sdmshrike msmnile $(MSMSTEPPE) atoll $(TRINKET)),true)
 
 LOCAL_PATH := $(call my-dir)
 
