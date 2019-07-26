@@ -23,7 +23,7 @@ endif
 ifeq ($(TARGET_SUPPORT),qcs40x)
 KBUILD_OPTIONS += CONFIG_ARCH_QCS405=y
 endif
-ifeq ($(TARGET_SUPPORT), sdmsteppe))
+ifeq ($(TARGET_SUPPORT), sdmsteppe)
 KBUILD_OPTIONS += CONFIG_ARCH_SM6150=y
 endif
 ifeq ($(TARGET_SUPPORT),sdxprairie)
@@ -50,7 +50,7 @@ obj-m += asoc/codecs/bolero/
 obj-m += asoc/codecs/csra66x0/
 obj-m += asoc/codecs/ep92/
 endif
-ifeq ($(TARGET_SUPPORT), sdmsteppe))
+ifeq ($(TARGET_SUPPORT), sdmsteppe)
 obj-m += asoc/codecs/bolero/
 obj-m += asoc/codecs/wcd937x/
 endif
