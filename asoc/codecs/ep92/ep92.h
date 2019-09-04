@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2018-2019, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -179,6 +179,8 @@ static struct reg_default ep92_reg_defaults[] = {
 #define EP92_AI_STD_ADO_MASK     0x08
 #define EP92_AI_RATE_MASK        0x07
 #define EP92_AI_NPCM_MASK        0x02
+#define EP92_AI_PREEMPH_SHIFT    3
+#define EP92_AI_PREEMPH_MASK     0x38
 #define EP92_AI_CH_COUNT_MASK    0x07
 #define EP92_AI_CH_ALLOC_MASK    0xff
 
