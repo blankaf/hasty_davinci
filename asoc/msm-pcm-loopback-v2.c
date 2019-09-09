@@ -249,7 +249,6 @@ static int msm_pcm_open(struct snd_pcm_substream *substream)
 	struct msm_pcm_loopback *pcm = NULL;
 	int ret = 0;
 	uint16_t bits_per_sample = 16;
-	struct msm_pcm_routing_evt event;
 	struct asm_session_mtmx_strtr_param_window_v2_t asm_mtmx_strtr_window;
 	uint32_t param_id;
 	struct msm_pcm_pdata *pdata;
@@ -271,10 +270,6 @@ static int msm_pcm_open(struct snd_pcm_substream *substream)
 	dev_dbg(rtd->platform->dev, "%s: pcm out open: %d,%d\n", __func__,
 			pcm->instance, substream->stream);
 	if (pcm->instance == 2) {
-		struct snd_soc_pcm_runtime *soc_pcm_rx =
-				pcm->playback_substream->private_data;
-		struct snd_soc_pcm_runtime *soc_pcm_tx =
-				pcm->capture_substream->private_data;
 		if (pcm->audio_client != NULL)
 			stop_pcm(pcm);
 
@@ -306,15 +301,6 @@ static int msm_pcm_open(struct snd_pcm_substream *substream)
 			mutex_unlock(&pcm->lock);
 			return -ENOMEM;
 		}
-		event.event_func = msm_pcm_route_event_handler;
-		event.priv_data = (void *) pcm;
-		msm_pcm_routing_reg_phy_stream(soc_pcm_tx->dai_link->id,
-			pcm->audio_client->perf_mode,
-			pcm->session_id, pcm->capture_substream->stream);
-		msm_pcm_routing_reg_phy_stream_v2(soc_pcm_rx->dai_link->id,
-			pcm->audio_client->perf_mode,
-			pcm->session_id, pcm->playback_substream->stream,
-			event);
 		if (substream->stream == SNDRV_PCM_STREAM_PLAYBACK) {
 			pcm->playback_substream = substream;
 			ret = pcm_loopback_set_volume(pcm, pcm->volume);
@@ -425,11 +411,19 @@ static int msm_pcm_prepare(struct snd_pcm_substream *substream)
 	struct snd_pcm_runtime *runtime = substream->runtime;
 	struct msm_pcm_loopback *pcm = runtime->private_data;
 	struct snd_soc_pcm_runtime *rtd = snd_pcm_substream_chip(substream);
+	struct msm_pcm_routing_evt event;
 
+	memset(&event, 0, sizeof(event));
 	mutex_lock(&pcm->lock);
 
 	dev_dbg(rtd->platform->dev, "%s: ASM loopback stream:%d\n",
 		__func__, substream->stream);
+
+	if (pcm->playback_start && pcm->capture_start) {
+		mutex_unlock(&pcm->lock);
+		return ret;
+	}
+
 	if (substream->stream == SNDRV_PCM_STREAM_PLAYBACK) {
 		if (!pcm->playback_start)
 			pcm->playback_start = 1;
@@ -437,6 +431,23 @@ static int msm_pcm_prepare(struct snd_pcm_substream *substream)
 		if (!pcm->capture_start)
 			pcm->capture_start = 1;
 	}
+
+	if (pcm->playback_start && pcm->capture_start) {
+		struct snd_soc_pcm_runtime *soc_pcm_rx =
+				pcm->playback_substream->private_data;
+		struct snd_soc_pcm_runtime *soc_pcm_tx =
+			pcm->capture_substream->private_data;
+		event.event_func = msm_pcm_route_event_handler;
+		event.priv_data = (void *) pcm;
+		msm_pcm_routing_reg_phy_stream(soc_pcm_tx->dai_link->id,
+			pcm->audio_client->perf_mode,
+			pcm->session_id, pcm->capture_substream->stream);
+		msm_pcm_routing_reg_phy_stream_v2(soc_pcm_rx->dai_link->id,
+			pcm->audio_client->perf_mode,
+			pcm->session_id, pcm->playback_substream->stream,
+			event);
+	}
+
 	mutex_unlock(&pcm->lock);
 
 	return ret;
