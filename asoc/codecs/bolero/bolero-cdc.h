@@ -78,6 +78,7 @@ int bolero_register_wake_irq(struct snd_soc_codec *codec, u32 data);
 void bolero_clear_amic_tx_hold(struct device *dev, u16 adc_n);
 int bolero_runtime_resume(struct device *dev);
 int bolero_runtime_suspend(struct device *dev);
+void bolero_wsa_pa_on(struct device *dev);
 #else
 static inline int bolero_register_macro(struct device *dev,
 					u16 macro_id,
@@ -123,6 +124,10 @@ static inline int bolero_runtime_resume(struct device *dev)
 static int bolero_runtime_suspend(struct device *dev)
 {
 	return 0;
+}
+
+static void bolero_wsa_pa_on(struct device *dev)
+{
 }
 #endif /* CONFIG_SND_SOC_BOLERO */
 #endif /* BOLERO_CDC_H */
