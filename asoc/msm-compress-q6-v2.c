@@ -4201,6 +4201,7 @@ static int msm_compr_probe(struct snd_soc_platform *platform)
 		return -EINVAL;
 	}
 
+	mutex_init(&pdata->lock);
 	snd_soc_platform_set_drvdata(platform, pdata);
 
 	for (i = 0; i < MSM_FRONTEND_DAI_MAX; i++) {
