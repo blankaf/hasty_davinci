@@ -61,7 +61,6 @@
 
 		qcom,dispparam-enabled;
 		/* IRQF_ONESHOT | IRQF_TRIGGER_FALLING */
-		qcom,esd-err-irq-gpio = <&tlmm 32 0x2002>;
 
 		qcom,disp-doze-backlight-threshold = <8>;
 		qcom,disp-fod-off-dimming-delay = <85>;
