@@ -1,6 +1,5 @@
 /*
  * Copyright (c) 2014-2019, The Linux Foundation. All rights reserved.
- * Copyright (C) 2020 XiaoMi, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -143,7 +142,6 @@ struct qusb_phy {
 	u8                      bias_ctrl2;
 
 	bool			override_bias_ctrl2;
-	bool			no_efuse_tune;
 };
 
 static void qusb_phy_enable_clocks(struct qusb_phy *qphy, bool on)
@@ -543,11 +541,11 @@ static int qusb_phy_init(struct usb_phy *phy)
 	if (qphy->qusb_phy_init_seq)
 		qusb_phy_write_seq(qphy->base, qphy->qusb_phy_init_seq,
 				qphy->init_seq_len, 0);
-	if (qphy->efuse_reg && (!qphy->no_efuse_tune)) {
+	if (qphy->efuse_reg) {
 		if (!qphy->tune_val)
 			qusb_phy_get_tune1_param(qphy);
 
-		pr_info("%s(): Programming TUNE1 parameter as:%x\n", __func__,
+		pr_debug("%s(): Programming TUNE1 parameter as:%x\n", __func__,
 				qphy->tune_val);
 		writel_relaxed(qphy->tune_val,
 				qphy->base + qphy->phy_reg[PORT_TUNE1]);
@@ -923,7 +921,6 @@ static int qusb_phy_probe(struct platform_device *pdev)
 				"DT Value for efuse is invalid.\n");
 				return -EINVAL;
 			}
-			qphy->no_efuse_tune = of_property_read_bool(dev->of_node, "mi,no-efuse-tune");
 		}
 	}
 
