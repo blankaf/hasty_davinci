@@ -1,9 +1,8 @@
 /*
- * Goodix GTX5 tools Dirver
+ * Goodix Tools Dirver Module
  *
- * Copyright (C) 2015 - 2016 Goodix, Inc.
+ * Copyright (C) 2019 - 2020 Goodix, Inc.
  * Copyright (C) 2020 XiaoMi, Inc.
- * Authors:  Wang Yafei <wangyafei@goodix.com>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -22,7 +21,6 @@
 #include <linux/atomic.h>
 #include <linux/miscdevice.h>
 #include <linux/slab.h>
-#include <asm/uaccess.h>
 #include <linux/uaccess.h>
 #include <linux/fs.h>
 #include <linux/list.h>
@@ -59,7 +57,7 @@
  * @length: Number of data bytes in @data being read from slave device
  * @filled: When buffer @data be filled will set this flag with 1, outhrwise 0
  * @list_head:Eonnet every goodix_tools_data struct into a list
-*/
+ */
 
 struct goodix_tools_data {
 	u32 reg_addr;
@@ -78,7 +76,7 @@ struct goodix_tools_data {
  * @normalcmd: Set slave device into normal mode
  * @wq: Wait queue struct use in synchronous data read
  * @mutex: Protect goodix_tools_dev
-*/
+ */
 struct goodix_tools_dev {
 	struct goodix_ts_core *ts_core;
 	struct list_head head;
@@ -92,8 +90,8 @@ struct goodix_tools_dev {
 
 
 /* read data from i2c asynchronous,
-** success return bytes read, else return <= 0
-*/
+ * success return bytes read, else return <= 0
+ */
 static int async_read(struct goodix_tools_dev *dev, void __user *arg)
 {
 	u8 *databuf = NULL;
@@ -161,7 +159,7 @@ static int read_config_data(struct goodix_ts_device *ts_dev, void __user *arg)
 	/* if reg_addr == 0, read config data with specific flow */
 	if (!reg_addr) {
 		if (ts_dev->hw_ops->read_config)
-			ret = ts_dev->hw_ops->read_config(ts_dev, tmp_buf, 0);
+			ret = ts_dev->hw_ops->read_config(ts_dev, tmp_buf);
 		else
 			ret = -EINVAL;
 	} else {
@@ -173,8 +171,8 @@ static int read_config_data(struct goodix_ts_device *ts_dev, void __user *arg)
 		goto err_out;
 
 	if (copy_to_user((u8 *)arg + I2C_MSG_HEAD_LEN, tmp_buf, ret)) {
-			ret = -EFAULT;
-			ts_err("Copy_to_user failed");
+		ret = -EFAULT;
+		ts_err("Copy_to_user failed");
 	}
 
 err_out:
@@ -183,8 +181,8 @@ err_out:
 }
 
 /* read data from i2c synchronous,
-** success return bytes read, else return <= 0
-*/
+ * success return bytes read, else return <= 0
+ */
 static int sync_read(struct goodix_tools_dev *dev, void __user *arg)
 {
 	int ret = 0;
@@ -235,8 +233,8 @@ static int sync_read(struct goodix_tools_dev *dev, void __user *arg)
 }
 
 /* write data to i2c asynchronous,
-** success return bytes write, else return <= 0
-*/
+ * success return bytes write, else return <= 0
+ */
 static int async_write(struct goodix_tools_dev *dev, void __user *arg)
 {
 	u8 *databuf;
@@ -258,8 +256,8 @@ static int async_write(struct goodix_tools_dev *dev, void __user *arg)
 
 	databuf = kzalloc(length, GFP_KERNEL);
 	if (!databuf) {
-			ts_err("Alloc memory failed");
-			return -ENOMEM;
+		ts_err("Alloc memory failed");
+		return -ENOMEM;
 	}
 	ret = copy_from_user(databuf, (u8 *)arg + I2C_MSG_HEAD_LEN, length);
 	if (ret) {
@@ -278,132 +276,6 @@ static int async_write(struct goodix_tools_dev *dev, void __user *arg)
 err_out:
 	kfree(databuf);
 	return ret;
-}
-
-/**
-
- * sync_read_rawdata - read device register through i2c bus
-
- * @dev: pointer to device data
-
- * @addr: register address
-
- * @data: read buffer
-
- * @len: bytes to read
-
- * return: 0 - read ok, < 0 - i2c transter error
-
-*/
-
-int sync_read_rawdata (unsigned int reg,
-		unsigned char *data, unsigned int len)
-
-{
-
-	int ret = 0;
-
-	struct goodix_tools_dev *dev = goodix_tools_dev;
-
-	struct goodix_tools_data tools_data;
-
-
-
-	tools_data.reg_addr = reg;
-
-	tools_data.length = len;
-
-	tools_data.filled = 0;
-
-
-
-	tools_data.data = kzalloc(tools_data.length, GFP_KERNEL);
-
-	if (!tools_data.data) {
-
-			ts_err("Alloc memory failed");
-
-			return -ENOMEM;
-
-	}
-
-
-
-	mutex_lock(&dev->mutex);
-
-	list_add_tail(&tools_data.list, &dev->head);
-
-	ts_info("add sync_read to list");
-
-	mutex_unlock(&dev->mutex);
-
-	/* wait queue will timeout after 1 seconds */
-
-	wait_event_interruptible_timeout(dev->wq, tools_data.filled == 1, HZ * 3);
-
-
-
-	mutex_lock(&dev->mutex);
-
-	list_del(&tools_data.list);
-
-	mutex_unlock(&dev->mutex);
-
-	if (tools_data.filled == 1) {
-
-		memcpy(data, tools_data.data, tools_data.length);
-
-	} else {
-
-		ret = -EAGAIN;
-
-		ts_err("Wait queue timeout");
-
-	}
-
-
-
-	kfree(tools_data.data);
-
-	return ret;
-
-}
-
-int goodix_tools_register(void)
-
-{
-
-	int ret = 0;
-
-	ts_info("register tools module");
-
-	/* Only the first time open device need to register module */
-
-	ret = goodix_register_ext_module(&goodix_tools_dev->module);
-
-	if (ret) {
-
-		ts_info("failed register to core module");
-
-	}
-
-	return ret;
-}
-
-
-
-int goodix_tools_unregister(void)
-
-{
-
-	int ret = 0;
-
-	/* when the last close this dev node unregister the module */
-
-	ret = goodix_unregister_ext_module(&goodix_tools_dev->module);
-
-	return ret;
-
 }
 
 static int init_cfg_data(struct goodix_ts_config *cfg, void __user *arg)
@@ -441,6 +313,49 @@ static int init_cfg_data(struct goodix_ts_config *cfg, void __user *arg)
 err_out:
 	return ret;
 }
+
+/**
+ * sync_read_rawdata - read device register through i2c bus
+ * @dev: pointer to device data
+ * @addr: register address
+ * @data: read buffer
+ * @len: bytes to read
+ * return: 0 - read ok, < 0 - i2c transter error
+*/
+int sync_read_rawdata(unsigned int reg, unsigned char *data, unsigned int len)
+{
+	int ret = 0;
+	struct goodix_tools_dev *dev = goodix_tools_dev;
+	struct goodix_tools_data tools_data;
+	tools_data.reg_addr = reg;
+	tools_data.length = len;
+	tools_data.filled = 0;
+	tools_data.data = kzalloc(tools_data.length, GFP_KERNEL);
+
+	if (!tools_data.data) {
+		ts_err("Alloc memory failed");
+		return -ENOMEM;
+	}
+	mutex_lock(&dev->mutex);
+	list_add_tail(&tools_data.list, &dev->head);
+	ts_info("add sync_read to list");
+	mutex_unlock(&dev->mutex);
+	/* wait queue will timeout after 1 seconds */
+	wait_event_interruptible_timeout(dev->wq, tools_data.filled == 1,
+		HZ * 3);
+	mutex_lock(&dev->mutex);
+	list_del(&tools_data.list);
+	mutex_unlock(&dev->mutex);
+	if (tools_data.filled == 1) {
+		memcpy(data, tools_data.data, tools_data.length);
+	} else {
+		ret = -EAGAIN;
+		ts_err("Wait queue timeout");
+	}
+	kfree(tools_data.data);
+	return ret;
+}
+
 /**
  * goodix_tools_ioctl - ioctl implementation
  *
@@ -586,6 +501,39 @@ err_out:
 	return ret;
 }
 
+int goodix_tools_register(void)
+{
+
+	int ret = 0;
+
+	ts_info("register tools module");
+
+	/* Only the first time open device need to register module */
+
+	ret = goodix_register_ext_module(&goodix_tools_dev->module);
+
+	if (ret) {
+
+		ts_info("failed register to core module");
+
+	}
+
+	return ret;
+}
+
+int goodix_tools_unregister(void)
+{
+
+	int ret = 0;
+
+	/* when the last close this dev node unregister the module */
+
+	ret = goodix_unregister_ext_module(&goodix_tools_dev->module);
+
+	return ret;
+
+}
+
 #ifdef CONFIG_COMPAT
 static long goodix_tools_compat_ioctl(struct file *file, unsigned int cmd,
 				unsigned long arg)
@@ -601,6 +549,7 @@ static long goodix_tools_compat_ioctl(struct file *file, unsigned int cmd,
 static int goodix_tools_open(struct inode *inode, struct file *filp)
 {
 	int ret = 0;
+
 	filp->private_data = goodix_tools_dev;
 	ts_info("tools open");
 	/* Only the first time open device need to register module */
@@ -634,7 +583,7 @@ static int goodix_tools_module_irq(struct goodix_ts_core *core_data,
 	struct goodix_tools_dev *dev = module->priv_data;
 	struct goodix_ts_device *ts_dev = dev->ts_core->ts_dev;
 	const struct goodix_ts_hw_ops *hw_ops = ts_dev->hw_ops;
-	struct goodix_tools_data *tools_data;
+	struct goodix_tools_data *tools_data, *next;
 	int r = 0;
 	u8 evt_sta = 0;
 
@@ -647,7 +596,7 @@ static int goodix_tools_module_irq(struct goodix_ts_core *core_data,
 			return EVT_CONTINUE;
 		}
 
-		list_for_each_entry(tools_data, &dev->head, list) {
+		list_for_each_entry_safe(tools_data, next, &dev->head, list) {
 			if (!hw_ops->read_trans(ts_dev, tools_data->reg_addr,
 					tools_data->data, tools_data->length)) {
 				tools_data->filled = 1;
@@ -664,7 +613,7 @@ static int goodix_tools_module_init(struct goodix_ts_core *core_data,
 {
 	struct goodix_tools_dev *tools_dev = module->priv_data;
 
-	if (core_data)
+	if (core_data && core_data->initialized)
 		tools_dev->ts_core = core_data;
 	else
 		return -ENODEV;

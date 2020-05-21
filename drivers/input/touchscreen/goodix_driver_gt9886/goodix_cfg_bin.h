@@ -3,7 +3,7 @@
 
 #include "goodix_ts_core.h"
 
-#define TS_DEFAULT_CFG_BIN "goodix_gt9886_cfg_f10.bin"
+#define TS_DEFAULT_CFG_BIN "goodix_gt9886_cfg_J2.bin"
 #define TS_BIN_VERSION_START_INDEX	5
 #define TS_BIN_VERSION_LEN	4
 #define TS_CFG_BIN_HEAD_RESERVED_LEN	6
@@ -24,7 +24,7 @@
 #define TS_NORMAL_CFG 0x01
 #define TS_HIGH_SENSE_CFG 0x03
 #define TS_RQST_FW_RETRY_TIMES 2
-#define TS_LOCKDOWN_REG 0xBDB4
+#define TS_LOCKDOWN_REG 0x4114
 
 #pragma pack(1)
 struct goodix_cfg_pkg_reg {
@@ -89,20 +89,5 @@ struct goodix_cfg_bin {
 	struct goodix_cfg_bin_head head;
 	struct goodix_cfg_package *cfg_pkgs;
 };
-
-
-int goodix_cfg_bin_proc(void *data);
-
-int goodix_parse_cfg_bin(struct goodix_cfg_bin *cfg_bin);
-
-int goodix_get_reg_and_cfg(struct goodix_ts_device *ts_dev, struct goodix_cfg_bin *cfg_bin);
-
-int goodix_read_cfg_bin(struct device *dev, struct goodix_cfg_bin *cfg_bin);
-
-int goodix_read_cfg_bin_from_dts(struct device_node *node, struct goodix_cfg_bin *cfg_bin);
-
-void goodix_cfg_pkg_leToCpu(struct goodix_cfg_package *pkg);
-
-int goodix_start_cfg_bin(struct goodix_ts_core *ts_core);
 
 #endif
